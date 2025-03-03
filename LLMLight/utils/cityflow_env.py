@@ -732,6 +732,8 @@ class CityFlowEnv:
 
     def _inner_step(self, action):
         # copy current measurements to previous measurements
+
+        print(f"here we successfully get the action and the action is {action}, we go into inner step")
         for inter in self.list_intersection:
             inter.update_previous_measurements()
         # set signals

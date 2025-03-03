@@ -48,16 +48,6 @@ phase_explanation_dict_detail = {
     "WTWL": "- WTWL: Western through and left-turn lanes."
 }
 
-# Alternative phase naming mapping
-phase_alt_mapping = {
-    "WSES": "ETWT", 
-    "NSSS": "NTST", 
-    "WLEL": "ELWL", 
-    "NLSL": "NLSL",
-    "ETWT": "WSES", 
-    "NTST": "NSSS", 
-    "ELWL": "WLEL"
-}
 
 @dataclass
 class GenerationConfig:
@@ -79,6 +69,7 @@ class LLMGenerationManager:
         tokenizer,
         actor_rollout_wg,
         env_class,
+        env,
         config: GenerationConfig,
         logger: Tracking,
         is_validation: bool = False,
@@ -91,6 +82,7 @@ class LLMGenerationManager:
             tokenizer: The tokenizer for processing text
             actor_rollout_wg: The actor model for rollouts
             env_class: The environment class to use
+            env: The environment instance
             config: Configuration parameters
             logger: Tracking object for logging metrics
             is_validation: Whether this is for validation
@@ -99,6 +91,7 @@ class LLMGenerationManager:
         self.tokenizer = tokenizer
         self.actor_rollout_wg = actor_rollout_wg
         self.env_class = env_class
+        self.env = env
         self.config = config
         self.logger = logger
         self.is_validation = is_validation
@@ -141,6 +134,12 @@ class LLMGenerationManager:
 
     def _batch_tokenize(self, responses: List[str]) -> torch.Tensor:
         """Tokenize a batch of responses."""
+        # Ensure responses is always a list of strings
+        if isinstance(responses, str):
+            responses = [responses]
+        elif not isinstance(responses, list):
+            raise TypeError(f"Expected responses to be a string or list of strings, got {type(responses)}")
+            
         return self.tokenizer(
             responses, 
             add_special_tokens=False, 
@@ -360,130 +359,45 @@ class LLMGenerationManager:
         """
     def generate_traffic_prompt(self, env, target_intersection=None):
         """
-        Generate traffic state prompt for the given environment/intersection
+        Generate a prompt for the traffic control task based on current state.
         
         Args:
-            env: Environment instance or dict with environment data
-            target_intersection: Optional target intersection name
-        
-        Returns:
-            String prompt with traffic state information
-        """
-        attempted_methods = []
-        
-        print(f"\n===== GENERATING TRAFFIC PROMPT =====")
-        print(f"Environment type: {type(env).__name__}")
-        
-        # If we don't have roads data yet, try to get it from the environment
-        if self.roads is None:
-            self._update_intersection_data(env)
-        
-        # Check if we're using default roads data
-        using_default_roads = False
-        if self.roads and "road_north" in self.roads:
-            if "location" in self.roads["road_north"] and "length" in self.roads["road_north"]:
-                if self.roads["road_north"]["location"] == "North" and self.roads["road_north"]["length"] == 300:
-                    # This looks like our default roads data
-                    if "road_south" in self.roads and "road_east" in self.roads and "road_west" in self.roads:
-                        # Confirm all cardinal directions exist with default values
-                        if (self.roads["road_south"]["length"] == 300 and
-                            self.roads["road_east"]["length"] == 300 and
-                            self.roads["road_west"]["length"] == 300):
-                            using_default_roads = True
-        
-        if using_default_roads:
-            print("Detected default roads data - likely no real traffic to report")
-            return "No traffic detected. Use the default signal: ETWT", True
+            env: Environment or intersection object
+            target_intersection: Optional specific intersection to target
             
-        # Try to get state details using our roads data
-        from .my_utils import get_state_detail
-        print(f"Using roads data with {len(self.roads)} roads")
-        
-        # Handle different state retrieval methods
-        state_txt = None
-        is_empty_state = False
+        Returns:
+            Tuple of (prompt_text, is_default_prompt)
+        """
+        attempted_methods = ["direct state detail retrieval"]
+        print("\n===== GENERATING TRAFFIC PROMPT =====")
         
         try:
-            # Try to get state detail using the env's get_state_detail function if available
-            attempted_methods.append("direct state detail retrieval")
-            print("\n===== TRYING DIRECT GET_STATE_DETAIL =====")
-            
-            if hasattr(env, 'get_state_detail'):
-                print("Environment has get_state_detail method, using it directly")
-                state, state_incoming, avg_speed = env.get_state_detail(roads=self.roads, env=env)
-                print(f"Successfully retrieved state using env.get_state_detail")
-                state_txt = self._state_to_table(state, env)
+            #            # Try using the imported get_state_detail function
                 
-                # Check if state is empty
-                is_empty_state = self._check_traffic_flow(state) == 0
-            else:
-                # Try using the imported get_state_detail function
-                if 'get_state_detail' in globals() and get_state_detail is not None:
                     print("Using imported get_state_detail function")
                     state, state_incoming, avg_speed = get_state_detail(roads=self.roads, env=env)
                     print(f"Successfully retrieved state using imported get_state_detail")
+                    
+                    # Check if state is empty (similar to chatgpt.py flow_num check)
+                    flow_num = 0
+                    for road in state:
+                        flow_num += state[road]["queue_len"] + sum(state[road]["cells"])
+                    
+                    if flow_num == 0:
+                        print("State is empty (no vehicles detected)")
+                        return "No vehicles detected. Use the default signal: ETWT, please reply <answer>ETWT</answer>, do not reply with any other text", True
+                    
+                    # Convert state to a readable table format
                     state_txt = self._state_to_table(state, env)
                     
-                    # Check if state is empty
-                    is_empty_state = self._check_traffic_flow(state) == 0
-                else:
-                    print("No get_state_detail function available")
+                    # Generate a well-formatted prompt with the state information
+                    prompt = state_txt
+                    return prompt, False
             
-            if is_empty_state:
-                print("State is empty (no vehicles detected)")
-                return "No vehicles detected. Use the default signal: ETWT", True
-                
-            if state_txt:
-                print("Successfully generated state text from state detail")
-                print("=================================================\n")
-                return state_txt, False
         except Exception as e:
             print(f"Error with direct state detail retrieval: {e}")
             print("=================================================\n")
             
-        # If stored roads didn't work, try the oneline.py method
-        if hasattr(env, 'intersection_dict') and hasattr(env, 'list_intersection'):
-            attempted_methods.append("using oneline.py style state retrieval")
-            print("\n===== TRYING ONELINE.PY STATE RETRIEVAL METHOD =====")
-            
-            # Check if there are any intersections
-            if len(env.list_intersection) > 0:
-                print(f"Found {len(env.list_intersection)} intersections")
-                
-                # Get the first intersection (or specified one if there's an index)
-                intersection_idx = 0
-                if hasattr(env, 'current_intersection_idx'):
-                    intersection_idx = env.current_intersection_idx
-                
-                inter_name = env.list_intersection[intersection_idx].inter_name
-                print(f"Using intersection: {inter_name}")
-                
-                # Get intersection data exactly as in oneline.py
-                intersection = env.intersection_dict[inter_name]
-                roads = copy.deepcopy(intersection["roads"])
-                print(f"Successfully retrieved roads data from intersection")
-                
-                # Call get_state_detail with the roads and env
-                if 'get_state_detail' in globals() and get_state_detail is not None:
-                    try:
-                        state, state_incoming, avg_speed = get_state_detail(roads=roads, env=env)
-                        print(f"Successfully retrieved state using get_state_detail")
-                        
-                        # Convert state to table format
-                        state_txt = self._state_to_table(state, env)
-                        
-                        # Check if state is empty
-                        is_empty_state = self._check_traffic_flow(state) == 0
-                        if is_empty_state:
-                            print("State is empty (no vehicles detected)")
-                            return "No vehicles detected. Use the default signal: ETWT", True
-                            
-                        if state_txt:
-                            print("Successfully generated state text from oneline.py method")
-                            print("=================================================\n")
-                            return state_txt, False
-                    except Exception as e:
-                        print(f"Error with oneline.py state retrieval: {e}")
         
         # If we made it here, we couldn't get the state
         print(f"\n===== COULD NOT RETRIEVE TRAFFIC STATE =====")
@@ -778,24 +692,29 @@ class LLMGenerationManager:
                 break
             
             # Get active environments
-            active_envs = [env for mask, env in zip(active_mask, envs) if mask]
+            envs = [env for mask, env in zip(active_mask, envs) if mask]
             active_indices = [i for i, mask in enumerate(active_mask) if mask]
             
             # Container for storing all actions for all environments
             all_env_actions = [None] * len(envs)
             all_env_responses = [None] * len(envs)
             all_env_responses_ids = [None] * len(envs)
+            all_intersection_prompts = [None] * len(envs)
             
             try:
                 # Process each active environment
-                for env_idx, env in zip(active_indices, active_envs):
+                for env_idx, env in zip(active_indices, envs):
                     env = envs[env_idx]
                     # Update roads data if not already stored
                     self._update_intersection_data(env)
-                    
+                    print(f"---------------------------------env---------------------------------: {env}")
+                    # Print more detailed info about the environment
+                    print("\nEnvironment Details:")
+                    print(f"Type: {type(env).__name__}")
+
                     # Process each intersection in the environment
                     # Get the number of intersections in this environment
-                    num_intersections = 1  # Default to one intersection if we can't determine
+                    num_intersections = 12  # Default to one intersection if we can't determine
                     
                     # Try different methods to get intersection count
                     if hasattr(env, 'list_intersection'):
@@ -809,42 +728,52 @@ class LLMGenerationManager:
                     intersection_actions = []
                     intersection_responses = []
                     intersection_responses_ids = []
-                    
+                    intersection_prompts = []
                     # Process each intersection
                     for i in range(num_intersections):
                         # Get the specific intersection if available
                         intersection = None
                         if hasattr(env, 'list_intersection') and i < len(env.list_intersection):
                             intersection = env.list_intersection[i]
+                            print(f"---------------------------------intersection---------------------------------: {intersection}")
                         elif hasattr(env, 'intersections') and i < len(env.intersections):
                             intersection = env.intersections[i]
                         
                         # Generate prompt for this intersection
-                        # Use the intersection object if available, otherwise use the environment
-                        target = intersection if intersection is not None else env
+                        target = intersection
                         
                         # Get the prompt
                         prompt = self.generate_traffic_prompt(target)
                         if prompt is None:
                             print(f"Warning: generate_traffic_prompt returned None for intersection {i}")
-                            prompt = "No valid traffic information available. Default signal: ETWT"
+                            prompt = "No valid traffic information available. Default signal: ETWT", True
                             
                         print(f"Generated prompt for intersection {i}")
                         print(f"prompt: {prompt}")
+
+                        intersection_prompts.append(prompt)
+                        
+                        # Handle prompt which may be a tuple (text, is_default)
+                        if isinstance(prompt, tuple) and len(prompt) > 0:
+                            prompt_text = prompt[0]  # Extract just the text part
+                        else:
+                            prompt_text = prompt  # Already a string
                         
                         # Convert prompt to tokens
                         try:
+                            # Ensure we're using a string for tokenization
+                            print(f"Tokenizing prompt of type: {type(prompt_text)}")
                             prompt_ids = self.tokenizer(
-                                prompt,
+                                [prompt_text],  # Wrap in a list to ensure correct input format
                                 padding='longest',
                                 return_tensors='pt'
                             )
                         except Exception as e:
                             print(f"Error tokenizing prompt: {e}")
                             # Provide a simple fallback prompt in case of tokenization errors
-                            prompt = "Traffic light control task. Default signal: ETWT"
+                            prompt_text = "Traffic light control task. Default signal: ETWT"
                             prompt_ids = self.tokenizer(
-                                prompt,
+                                [prompt_text],  # Also wrap the fallback in a list
                                 padding='longest',
                                 return_tensors='pt'
                             )
@@ -866,9 +795,33 @@ class LLMGenerationManager:
                             try:
                                 # Generate response
                                 gen_output = self._generate_with_gpu_padding(rolling_input)
+
+
+
+                                #NOTE: simulate the response gen_output
+                                # response_text = ["<answer>ETWT</answer>"]
+                                # # Create a properly formatted tensor with shape attribute
+                                # # First tokenize to get token ids
+                                # tokens = self.tokenizer(response_text, return_tensors="pt")
+                                # # Use the token ids as the simulated model output
+                                # response_tensor = tokens.input_ids
                                 
+                                # gen_output_dict = {
+                                #     'batch': {
+                                #         'responses': response_tensor
+                                #     },
+                                #     'meta_info': {
+                                #         'micro_batch_size': 1  # Add the missing micro_batch_size
+                                #     }
+                                # }
+                                # # Convert to DataProto to match the expected return type from _generate_with_gpu_padding
+                                # gen_output = DataProto.from_dict(gen_output_dict)
+                                #NOTE: end of simulate the response gen_output
+                                
+
+
                                 # Update meta info
-                                if not meta_info and hasattr(gen_output, 'meta_info'):
+                                if not meta_info:
                                     meta_info.update(gen_output.meta_info)
                                 
                                 # Post-process the model response
@@ -906,14 +859,6 @@ class LLMGenerationManager:
                                             if act in signal_text:
                                                 action_code = idx
                                                 break
-                                                
-                                        # If no match, check alternative naming using the phase_alt_mapping
-                                        if action_code is None and signal_text in phase_alt_mapping:
-                                            alt_signal = phase_alt_mapping[signal_text]
-                                            for idx, act in enumerate(available_actions):
-                                                if act == alt_signal:
-                                                    action_code = idx
-                                                    break
                                     
                                     if action_code is not None:
                                         intersection_actions.append(action_code)
@@ -949,51 +894,30 @@ class LLMGenerationManager:
                     all_env_actions[env_idx] = intersection_actions
                     all_env_responses[env_idx] = intersection_responses
                     all_env_responses_ids[env_idx] = intersection_responses_ids
+                    all_intersection_prompts[env_idx] = intersection_prompts
                 
                 # Execute actions in all environments
                 next_observations = []
                 dones = []
                 
-                for env_idx, env in zip(active_indices, active_envs):
-                    # Get actions for this environment
+                for env_idx, env in zip(active_indices, envs):
                     env_actions = all_env_actions[env_idx]
                     
-                    # Execute actions in the environment
-                    # Different environments may have different interfaces
                     try:
                         if hasattr(env, 'step'):
-                            # Standard environment step interface
+                            print(f"ENV_STEP-----------------------")
                             next_obs, reward, done, _ = env.step(env_actions)
-                            next_observations.append(next_obs)
-                            dones.append(done)
-                        elif hasattr(env, 'execute_actions'):
-                            # Execute with custom method
-                            next_obs, done = env.execute_actions(env_actions)
-                            next_observations.append(next_obs)
-                            dones.append(done)
-                        else:
-                            # If no standard interface, try to use env_class methods
-                            env_responses = all_env_responses[env_idx]
-                            env_responses_ids = all_env_responses_ids[env_idx]
-                            
-                            # Use execute_predictions if available in env_class
-                            if hasattr(self.env_class, 'execute_predictions'):
-                                next_obs, done = self.env_class.execute_predictions(
-                                    [env], [env_responses], [env_responses_ids], self.tokenizer
-                                )
-                                next_observations.extend(next_obs)
-                                dones.extend(done)
+                            # next_obs is a list of states for each intersection
+                            # Convert each intersection state to a prompt
+                            #NOTE： 这些需要修复，obs应该要记录，或者记录每个路口的prompt
+                            # # Join all intersection prompts with a separator
+                            # combined_prompt = "\n=== Next Intersection ===\n".join(intersection_prompts)
+                            # next_observations.append(combined_prompt)
+                            # dones.append(done)
                     except Exception as e:
                         print(f"Error executing actions: {e}")
-                        # Use default values if execution fails
                         next_observations.append("")
                         dones.append(False)
-                
-                # Update active mask based on environment completion
-                for i, done in zip(active_indices, dones):
-                    if done:
-                        active_mask[i] = False
-                active_num_list.append(active_mask.sum().item())
                 
                 # Process next observations if available
                 if next_observations:
@@ -1002,13 +926,39 @@ class LLMGenerationManager:
                     # Flatten responses for all active environments
                     all_responses = []
                     for env_idx in active_indices:
-                        all_responses.extend(all_env_responses_ids[env_idx])
+                        response_ids = all_env_responses_ids[env_idx]
+                        if response_ids:  # Check if we have responses
+                            if isinstance(response_ids[0], torch.Tensor):
+                                # Find the maximum length among all response tensors
+                                max_len = max(tensor.size(-1) for tensor in response_ids)
+                                
+                                # Pad each tensor to max_len
+                                padded_responses = []
+                                for tensor in response_ids:
+                                    if tensor.size(-1) < max_len:
+                                        padding = torch.full((max_len - tensor.size(-1),), 
+                                                           self.tokenizer.pad_token_id,
+                                                           dtype=tensor.dtype,
+                                                           device=tensor.device)
+                                        padded_tensor = torch.cat([tensor, padding])
+                                    else:
+                                        padded_tensor = tensor
+                                    padded_responses.append(padded_tensor)
+                                
+                                # Now all tensors are the same size, we can extend
+                                all_responses.extend(padded_responses)
+                            else:
+                                print(f"Warning: Unexpected response_ids type: {type(response_ids[0])}")
                     
                     # Convert to tensor if needed
-                    if all_responses and not isinstance(all_responses[0], torch.Tensor):
-                        all_responses = torch.stack(all_responses)
+                    if all_responses:  # Check if we have any responses
+                        if isinstance(all_responses[0], torch.Tensor):
+                            all_responses = torch.stack(all_responses)
+                        else:
+                            all_responses = self._batch_tokenize(all_responses)
                     else:
-                        all_responses = torch.cat(all_responses, dim=0)
+                        print("Warning: No responses to process")
+                        continue  # Skip this iteration if no valid responses
                     
                     # Update tracking for right side
                     original_right_side = self._update_right_side(
@@ -1124,9 +1074,6 @@ class LLMGenerationManager:
         Args:
             env: Environment instance, which should have intersection and roads data
         """
-        if self.roads is not None and self.intersection is not None:
-            print("Already have intersection data, skipping update")
-            return
             
         print(f"\n===== UPDATING INTERSECTION DATA =====")
         print(f"Environment type: {type(env).__name__}")
@@ -1135,39 +1082,40 @@ class LLMGenerationManager:
             print(f"Environment attributes: {', '.join(env_attrs[:15])}")
         print("=======================================\n")
         
-        # Check if the env has the env attribute (might be from chatgpt.py)
-        if hasattr(env, 'env') and env.env is not None:
-            print("Found env attribute, using it instead")
-            env = env.env
-            print(f"Updated environment type: {type(env).__name__}")
-            if hasattr(env, '__dict__'):
-                env_attrs = [attr for attr in dir(env) if not attr.startswith('__')]
-                print(f"Updated environment attributes: {', '.join(env_attrs[:15])}")
+        
+        # Store data for all intersections
+        self.intersections = []
+        self.roads_list = []
+        self.inter_names = []
         
         # The environment from OneLine is a CityFlowEnv instance that should have
         # intersection_dict and list_intersection attributes
         if hasattr(env, 'intersection_dict') and hasattr(env, 'list_intersection') and len(env.list_intersection) > 0:
             print("Found CityFlowEnv style environment with intersection_dict")
             
-            # Get the first intersection (or specified one if there's an index)
-            intersection_idx = 0
-            if hasattr(env, 'current_intersection_idx'):
-                intersection_idx = env.current_intersection_idx
+            # Process each intersection
+            for i in range(len(env.list_intersection)):
+                intersection_idx = i
+                if hasattr(env, 'current_intersection_idx'):
+                    intersection_idx = env.current_intersection_idx
                 
-            # Get the intersection name
-            inter_name = env.list_intersection[intersection_idx].inter_name
-            print(f"Using intersection: {inter_name}")
+                # Get the intersection name
+                inter_name = env.list_intersection[intersection_idx].inter_name
+                print(f"Using intersection: {inter_name}")
+                
+                # Get intersection data and store it
+                intersection = env.intersection_dict[inter_name]
+                self.intersections.append(intersection)
+                self.roads_list.append(copy.deepcopy(intersection["roads"]))
+                self.inter_names.append(inter_name)
+                
+                # Maintain backward compatibility for every intersection
+                self.intersection = intersection
+                self.roads = copy.deepcopy(intersection["roads"])
+                self.inter_name = inter_name
+                self._update_length_dict()
             
-            # Get intersection data and store it
-            intersection = env.intersection_dict[inter_name]
-            self.intersection = intersection
-            self.roads = copy.deepcopy(intersection["roads"])
-            self.inter_name = inter_name
-            
-            # Update length dictionary from roads data
-            self._update_length_dict()
-            
-            print(f"Successfully updated intersection data with {len(self.roads)} roads")
+            print(f"Successfully updated intersection data for {len(self.intersections)} intersections")
             return True
             
         # If we couldn't find intersection data, create default roads data

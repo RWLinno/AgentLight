@@ -18,12 +18,12 @@ This trainer supports model-agonistic model initialization with huggingface
 
 import os
 import uuid
+import random
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import Enum
 from pprint import pprint
 from typing import Type, Dict
-import random
 import re
 import json
 from collections import defaultdict
@@ -604,12 +604,14 @@ class RayPPOTrainer(object):
             tokenizer=self.tokenizer,
             actor_rollout_wg=self.actor_rollout_wg,
             env_class=self.env_class,
+            env=self.env,
             config=gen_config,
             logger = logger,
         )
        #NOTE: xc : 这里创建初始化环境
         #envs = [self.env.copy() for _ in range(self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n_agent)] 
-        envs = [self.env.reset() for _ in range(self.config.actor_rollout_ref.rollout.n_agent)]  # batch_size 应该等于 路口数量*agent数量
+        envs = [self.env for _ in range(self.config.actor_rollout_ref.rollout.n_agent)]
+        envs_state = [env.reset() for env in envs] # batch_size 应该等于 路口数量*agent数量
         print(f"-------------success create {len(envs)} environments-------------")
         print("end reset")
 
@@ -634,39 +636,6 @@ class RayPPOTrainer(object):
 
                 metrics = {}
                 timing_raw = {}
-
-                # batch: DataProto = DataProto.from_single_dict(batch_dict)
-                # batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n_agent, interleave=True)
-
-                #env_seeds = [i['index'] for i in batch.non_tensor_batch['extra_info']]
-                # env_seeds = [random.randint(0, 1000) for _ in range(len(envs))]
-
-                # print("env_seeds:", env_seeds)
-                # for env, seed in zip(envs, env_seeds):
-                #     env.reset(seed=seed)
-
-
-                # pop those keys for generation
-                # gen_batch = batch.pop(batch_keys=['input_ids', 'attention_mask', 'position_ids'])
-
-                ####################
-                # original code here
-
-                # with _timer('gen', timing_raw):
-                #     gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
-
-                #     batch.non_tensor_batch['uid'] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))],
-                #                                              dtype=object)
-                #     # repeat to align with repeated responses in rollout
-                #     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
-                #     batch = batch.union(gen_batch_output)
-
-                #     # output batch to file
-                #     self._record_batch(batch, path=f'.log/{self.config.trainer.experiment_name}/gen_batch.txt')
-
-                ####################
-                # Below is aLL about agents - the "LLM + forloop"
-                ####################
 
                 with _timer('step', timing_raw):
                     """
@@ -697,8 +666,14 @@ class RayPPOTrainer(object):
                     with torch.no_grad():
                         output = self.actor_rollout_wg.compute_log_prob(final_gen_batch_output)
                         final_gen_batch_output = final_gen_batch_output.union(output)
+                        
+                    # rwl fix: Initialize batch with final_gen_batch_output
+                    batch = final_gen_batch_output
                     
-                    if self.config.algorithm.adv_estimator == 'grpo': # NOTE we currently use seed to group, better use prompt (hash) to group
+                    # Generate random seeds for environments
+                    env_seeds = [random.randint(0, 1000) for _ in range(len(envs))]
+                    
+                    if self.config.algorithm.adv_estimator == 'grpo':
                         batch.non_tensor_batch['uid'] = np.array([str(i) for i in env_seeds], dtype=object)
                     elif self.config.algorithm.adv_estimator == 'brpo':
                         batch.non_tensor_batch['uid'] = np.array(["" for _ in range(len(batch.batch))], dtype=object)

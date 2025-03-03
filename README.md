@@ -8,11 +8,7 @@ Note-rwl: 可解释 可泛化 可推理 通用的 交通信号控制 LLM Agent.
 ### TrafficControlEnv
 
 ```bash
-python ./scripts/test_traffic_env.py #交通控制测试脚本，可以正常跑了
-
-bash ./scripts/train_traffic_simple.sh # 简单训练脚本
-
-bash ./scripts/train_traffic_roadnet_1x1.sh # 在真实数据集上训练的脚本
+bash train_traffic_final.sh
 ```
 
 ### TrafficControlAgent

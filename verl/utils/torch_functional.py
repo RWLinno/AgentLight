@@ -15,7 +15,7 @@
 Contain small torch utilities
 """
 
-from typing import Dict, Union, List, Optional
+from typing import Dict, Union, List, Optional, Tuple
 
 import os
 import torch
@@ -222,22 +222,24 @@ def pad_sequence_to_length(tensors, max_seq_len, pad_token_id, left_pad=False):
 from transformers import PreTrainedTokenizer
 
 
-def tokenize_and_postprocess_data(prompt: str,
+def tokenize_and_postprocess_data(prompt: Union[str, Tuple[str, bool]],
                                   tokenizer: PreTrainedTokenizer,
                                   max_length: int,
                                   pad_token_id: int,
                                   left_pad=True,
                                   truncation='error'):
-    """
-    input_data is the output from tokenizer.
-    """
+    
     assert truncation in ['left', 'right', 'error']
-
+    
+    # rwl: fix tuple -> str
+    if isinstance(prompt, tuple):
+        prompt = prompt[0]
+    
     input_data = tokenizer(prompt, return_tensors='pt', add_special_tokens=False)
-
+    
     input_ids = input_data['input_ids']
     attention_mask = input_data['attention_mask']
-
+    
     assert input_ids.ndim == 2
 
     sequence_length = input_ids.shape[-1]
