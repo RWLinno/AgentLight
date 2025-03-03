@@ -1,0 +1,104 @@
+{
+  "flows": [
+    {
+      "vehicle": "vehicle_0",
+      "route": [
+        "road_0_0_0",
+        "road_0_1_2"
+      ],
+      "interval": 10.0,
+      "startTime": 0,
+      "endTime": 300
+    },
+    {
+      "vehicle": "vehicle_1",
+      "route": [
+        "road_0_0_0",
+        "road_0_1_2"
+      ],
+      "interval": 10.0,
+      "startTime": 10,
+      "endTime": 300
+    },
+    {
+      "vehicle": "vehicle_2",
+      "route": [
+        "road_0_0_0",
+        "road_0_1_2"
+      ],
+      "interval": 10.0,
+      "startTime": 20,
+      "endTime": 300
+    },
+    {
+      "vehicle": "vehicle_3",
+      "route": [
+        "road_0_0_0",
+        "road_0_1_2"
+      ],
+      "interval": 10.0,
+      "startTime": 30,
+      "endTime": 300
+    },
+    {
+      "vehicle": "vehicle_4",
+      "route": [
+        "road_0_0_0",
+        "road_0_1_2"
+      ],
+      "interval": 10.0,
+      "startTime": 40,
+      "endTime": 300
+    },
+    {
+      "vehicle": "vehicle_5",
+      "route": [
+        "road_0_0_0",
+        "road_0_1_2"
+      ],
+      "interval": 10.0,
+      "startTime": 50,
+      "endTime": 300
+    },
+    {
+      "vehicle": "vehicle_6",
+      "route": [
+        "road_0_0_0",
+        "road_0_1_2"
+      ],
+      "interval": 10.0,
+      "startTime": 60,
+      "endTime": 300
+    },
+    {
+      "vehicle": "vehicle_7",
+      "route": [
+        "road_0_0_0",
+        "road_0_1_2"
+      ],
+      "interval": 10.0,
+      "startTime": 70,
+      "endTime": 300
+    },
+    {
+      "vehicle": "vehicle_8",
+      "route": [
+        "road_0_0_0",
+        "road_0_1_2"
+      ],
+      "interval": 10.0,
+      "startTime": 80,
+      "endTime": 300
+    },
+    {
+      "vehicle": "vehicle_9",
+      "route": [
+        "road_0_0_0",
+        "road_0_1_2"
+      ],
+      "interval": 10.0,
+      "startTime": 90,
+      "endTime": 300
+    }
+  ]
+}

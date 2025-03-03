@@ -1,0 +1,33 @@
+name: "cityflow"
+data_dir: "data/Jinan/3_4"
+env_type: "discrete"
+obs_type: "text"
+
+env_kwargs:
+  path_to_log: "./log"
+  path_to_work_directory: "./LLMLight/data/Jinan/3_4"
+  dic_traffic_env_conf:
+    NUM_INTERSECTIONS: 12
+    NUM_ROW: 3
+    NUM_COL: 4
+    ACTION_PATTERN: "set"
+    MIN_ACTION_TIME: 10
+    YELLOW_TIME: 3
+    LIST_STATE_FEATURE: ["cur_phase", "traffic_movement_pressure_queue"]
+    PHASE: ["WSES", "NSSS", "WLEL", "NLSL"]
+    NUM_LANES: [3, 3, 3, 3]
+    INTERVAL: 1.0
+    ROADNET_FILE: "roadnet_3_4.json"
+    TRAFFIC_FILE: "anon_3_4_jinan_real.json"
+    OBS_LENGTH: 100
+    MODEL_NAME: "LLM_traffic_control"
+    RUN_COUNTS: 3600
+    DIC_REWARD_INFO:
+      pressure: -0.25
+      queue_length: -0.25
+  dic_path:
+    PATH_TO_DATA: "./data/Jinan/3_4"
+  max_steps: 3600
+  num_intersections: 12
+  env_type: "discrete"
+  obs_type: "text"

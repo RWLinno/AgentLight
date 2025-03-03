@@ -1,0 +1,240 @@
+{
+  "intersections": [
+    {
+      "id": "intersection_0_0",
+      "point": {
+        "x": 0,
+        "y": 0
+      },
+      "width": 10,
+      "virtual": false,
+      "roads": [
+        "road_0_0_0",
+        "road_0_0_1",
+        "road_0_0_2",
+        "road_0_0_3"
+      ],
+      "trafficLight": {
+        "roadLinkIndices": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "lightphases": [
+          {
+            "time": 30,
+            "availableRoadLinks": [
+              0,
+              1
+            ]
+          },
+          {
+            "time": 30,
+            "availableRoadLinks": [
+              2,
+              3
+            ]
+          },
+          {
+            "time": 30,
+            "availableRoadLinks": [
+              4,
+              5
+            ]
+          },
+          {
+            "time": 30,
+            "availableRoadLinks": [
+              6,
+              7
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "intersection_0_1",
+      "point": {
+        "x": 200,
+        "y": 0
+      },
+      "width": 10,
+      "virtual": false,
+      "roads": [
+        "road_0_1_0",
+        "road_0_1_1",
+        "road_0_1_2",
+        "road_0_1_3"
+      ],
+      "trafficLight": {
+        "roadLinkIndices": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "lightphases": [
+          {
+            "time": 30,
+            "availableRoadLinks": [
+              0,
+              1
+            ]
+          },
+          {
+            "time": 30,
+            "availableRoadLinks": [
+              2,
+              3
+            ]
+          },
+          {
+            "time": 30,
+            "availableRoadLinks": [
+              4,
+              5
+            ]
+          },
+          {
+            "time": 30,
+            "availableRoadLinks": [
+              6,
+              7
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "roads": [
+    {
+      "id": "road_0_0_0",
+      "points": [
+        {
+          "x": 0,
+          "y": 0
+        },
+        {
+          "x": 100,
+          "y": 0
+        }
+      ],
+      "lanes": 3,
+      "startIntersection": "intersection_0_0",
+      "endIntersection": "intersection_0_1"
+    },
+    {
+      "id": "road_0_0_1",
+      "points": [
+        {
+          "x": 0,
+          "y": 0
+        },
+        {
+          "x": 0,
+          "y": 100
+        }
+      ],
+      "lanes": 3,
+      "startIntersection": "intersection_0_0",
+      "endIntersection": "virtual_0_1"
+    },
+    {
+      "id": "road_0_0_2",
+      "points": [
+        {
+          "x": 0,
+          "y": 0
+        },
+        {
+          "x": -100,
+          "y": 0
+        }
+      ],
+      "lanes": 3,
+      "startIntersection": "intersection_0_0",
+      "endIntersection": "intersection_0_1"
+    },
+    {
+      "id": "road_0_0_3",
+      "points": [
+        {
+          "x": 0,
+          "y": 0
+        },
+        {
+          "x": 0,
+          "y": -100
+        }
+      ],
+      "lanes": 3,
+      "startIntersection": "intersection_0_0",
+      "endIntersection": "virtual_0_3"
+    },
+    {
+      "id": "road_0_1_0",
+      "points": [
+        {
+          "x": 200,
+          "y": 0
+        },
+        {
+          "x": 300,
+          "y": 0
+        }
+      ],
+      "lanes": 3,
+      "startIntersection": "intersection_0_1",
+      "endIntersection": "intersection_0_0"
+    },
+    {
+      "id": "road_0_1_1",
+      "points": [
+        {
+          "x": 200,
+          "y": 0
+        },
+        {
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "lanes": 3,
+      "startIntersection": "intersection_0_1",
+      "endIntersection": "virtual_1_1"
+    },
+    {
+      "id": "road_0_1_2",
+      "points": [
+        {
+          "x": 200,
+          "y": 0
+        },
+        {
+          "x": 100,
+          "y": 0
+        }
+      ],
+      "lanes": 3,
+      "startIntersection": "intersection_0_1",
+      "endIntersection": "intersection_0_0"
+    },
+    {
+      "id": "road_0_1_3",
+      "points": [
+        {
+          "x": 200,
+          "y": 0
+        },
+        {
+          "x": 200,
+          "y": -100
+        }
+      ],
+      "lanes": 3,
+      "startIntersection": "intersection_0_1",
+      "endIntersection": "virtual_1_3"
+    }
+  ]
+}

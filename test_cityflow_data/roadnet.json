@@ -1,0 +1,33 @@
+{
+  "intersections": [
+    {
+      "id": "intersection_0_0",
+      "point": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": "intersection_0_1",
+      "point": {
+        "x": 0,
+        "y": 1
+      }
+    },
+    {
+      "id": "intersection_1_0",
+      "point": {
+        "x": 1,
+        "y": 0
+      }
+    },
+    {
+      "id": "intersection_1_1",
+      "point": {
+        "x": 1,
+        "y": 1
+      }
+    }
+  ],
+  "roads": []
+}

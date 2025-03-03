@@ -1,0 +1,32 @@
+name: "cityflow"
+data_dir: "data/traffic"
+env_type: "discrete"
+obs_type: "text"
+
+env_kwargs:
+  path_to_log: "./log"
+  path_to_work_directory: "./data/traffic"
+  dic_traffic_env_conf:
+    NUM_INTERSECTIONS: 4
+    NUM_ROW: 2
+    NUM_COL: 2
+    ACTION_PATTERN: "set"
+    MIN_ACTION_TIME: 10
+    YELLOW_TIME: 3
+    LIST_STATE_FEATURE: ["lane_num_vehicle", "lane_num_waiting_vehicle_in", "pressure"]
+    PHASE: ["WSES", "NSSS", "WLEL", "NLSL"]
+    NUM_LANES: [3, 3, 3, 3]
+    INTERVAL: 1.0
+    ROADNET_FILE: "roadnet.json"
+    TRAFFIC_FILE: "anon_4_4_hangzhou_real.json"
+    OBS_LENGTH: 100
+    MODEL_NAME: "LLM_traffic_control"
+    DIC_REWARD_INFO:
+      pressure: -0.25
+      queue_length: -0.25
+  dic_path:
+    PATH_TO_DATA: "./data/traffic"
+  max_steps: 3600
+  num_intersections: 4
+  env_type: "discrete"
+  obs_type: "text"

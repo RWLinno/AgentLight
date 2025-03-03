@@ -1,0 +1,17 @@
+env:
+  _target_: ragen.env.traffic_control.env.TrafficControlEnv
+  path_to_work_directory: ./AgentLight/data/traffic
+  roadnet_file: roadnet_1x1.json
+  flow_file: flow_1x1.json
+  
+data:
+  train_files: ['./AgentLight/data/traffic/train.parquet']
+  val_files: []
+  use_dataset: false
+  
+trainer:
+  use_env_rollouts: true
+  use_dataset_training: false
+  num_envs: 8
+  steps_per_epoch: 500
+
