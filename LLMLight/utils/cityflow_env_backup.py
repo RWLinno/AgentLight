@@ -91,8 +91,7 @@ class Intersection:
         self.all_red_flag = False
         self.all_yellow_flag = False
         self.flicker = 0
-        self.waiting_vehicle_list = {}
-        self.waiting_vehicle_counts = {lane: 0 for lane in self.list_entering_lanes}
+        self.waiting_vehicle_list = {}  # Initialize waiting vehicle list
 
     def set_signal(self, action, action_pattern, yellow_time, path_to_log):
         if self.all_yellow_flag:
@@ -463,7 +462,7 @@ class Intersection:
                      state_feature_name in list_state_features}
         
         # Add waiting vehicle information
-        dic_state['waiting_vehicle_list'] = self.waiting_vehicle_counts
+        dic_state['waiting_vehicle_list'] = self.waiting_vehicle_list
         return dic_state
 
     def get_state_detail(self):
@@ -503,6 +502,7 @@ class Intersection:
 
 
 class CityFlowEnv:
+
     def __init__(self, path_to_log, path_to_work_directory, dic_traffic_env_conf, dic_path):
         self.path_to_log = path_to_log
         self.path_to_work_directory = path_to_work_directory
@@ -533,11 +533,11 @@ class CityFlowEnv:
             f = open(path_to_log_file, "wb")
             f.close()
 
-    def reset(self, seed=None):
+    def reset(self):
         print(" ============= self.eng.reset() to be implemented ==========")
         cityflow_config = {
             "interval": self.dic_traffic_env_conf["INTERVAL"],
-            "seed": seed,
+            "seed": int(np.random.randint(0, 100)),
             "laneChange": True,
             "dir": self.path_to_work_directory+"/",
             "roadnetFile": self.dic_traffic_env_conf["ROADNET_FILE"],
@@ -718,10 +718,7 @@ class CityFlowEnv:
     def step(self, action):
 
         step_start_time = time.time()
-        # convert the action to a init list
-        # action = [action]
-        print(f"action: {action}")
-        print(f"type of action: {type(action)}")
+
         list_action_in_sec = [action]
         list_action_in_sec_display = [action]
         for i in range(self.dic_traffic_env_conf["MIN_ACTION_TIME"]-1):
@@ -748,26 +745,19 @@ class CityFlowEnv:
                     
             self._inner_step(action_in_sec)
 
-            print(f"finished inner step")
-
             # get reward
             reward = self.get_reward()
-            print(f"reward: {reward}")
-            detail_reward = self.get_detail_reward()
-            print(f"detail_reward: {detail_reward}")
-            for j in range(len(detail_reward)):
-                average_reward_action_list[j] = (average_reward_action_list[j] * i + detail_reward[j]) / (i + 1)
+            for j in range(len(reward)):
+                average_reward_action_list[j] = (average_reward_action_list[j] * i + reward[j]) / (i + 1)
             self.log(cur_time=instant_time, before_action_feature=before_action_feature, action=action_in_sec_display)
             next_state, done = self.get_state()
 
         print("Step time: ", time.time() - step_start_time)
-        return next_state, reward, done, detail_reward
+        return next_state, reward, done, average_reward_action_list
 
     def _inner_step(self, action):
         # copy current measurements to previous measurements
 
-        # Convert numpy.float64 to regular Python floats
-        #action = [float(a) for a in action]
         print(f"here we successfully get the action and the action is {action}, we go into inner step")
         for inter in self.list_intersection:
             inter.update_previous_measurements()
@@ -775,12 +765,12 @@ class CityFlowEnv:
         # multi_intersection decided by action {inter_id: phase}
         for inter_ind, inter in enumerate(self.list_intersection):
             inter.set_signal(
-                action=int(action[inter_ind]),  # Convert to int for phase index
+                action=action[inter_ind],
                 action_pattern=self.dic_traffic_env_conf["ACTION_PATTERN"],
                 yellow_time=self.dic_traffic_env_conf["YELLOW_TIME"],
                 path_to_log=self.path_to_log
             )
-        print(f"we are here")
+
         # run one step
         for i in range(int(1/self.dic_traffic_env_conf["INTERVAL"])):
             self.eng.next_step()
@@ -789,7 +779,6 @@ class CityFlowEnv:
             vehicle_ids = self.eng.get_vehicles(include_waiting=False)
             for v_id in vehicle_ids:
                 v_info = self.eng.get_vehicle_info(v_id)
-
                 speed = float(v_info["speed"])
                 if speed < 0.1:
                     if v_id not in self.waiting_vehicle_list:
@@ -807,8 +796,6 @@ class CityFlowEnv:
                     if v_id in self.waiting_vehicle_list:
                         self.waiting_vehicle_list.pop(v_id)
 
-        # Calculate and store reward
-        
         self.system_states = {"get_lane_vehicles": self.eng.get_lane_vehicles(),
                               "get_lane_waiting_vehicle_count": self.eng.get_lane_waiting_vehicle_count(),
                               "get_vehicle_speed": self.eng.get_vehicle_speed(),
@@ -832,12 +819,6 @@ class CityFlowEnv:
         return list_state, done
 
     def get_reward(self):
-        list_reward = [inter.get_reward(self.dic_traffic_env_conf["DIC_REWARD_INFO"]) for inter in self.list_intersection]
-        # Return sum of all rewards
-        return np.sum(list_reward)
-    
-    def get_detail_reward(self):
-        # get reward for each intersection
         list_reward = [inter.get_reward(self.dic_traffic_env_conf["DIC_REWARD_INFO"]) for inter in self.list_intersection]
         return list_reward
 
@@ -994,98 +975,3 @@ class CityFlowEnv:
         for key, value in lanes_length_dict.items():
             lane_normalize_factor[key] = value / min_length
         return lane_normalize_factor, lanes_length_dict
-    
-    def finished(self):
-        """
-        Check if the current episode is finished
-        
-        Returns:
-            Boolean indicating if the episode is done
-        """
-        # Episode could be finished for multiple reasons:
-        # 1. Max time steps reached
-        max_time_reached = self.current_time >= self.config.get('max_time_steps', 3600)
-        
-        # 2. All vehicles have reached their destinations
-        all_vehicles_finished = False
-        if self.eng:
-            all_vehicles_finished = self.eng.get_vehicle_count() == 0 and self.current_time > 0
-        
-        # 3. Any environment-specific termination condition
-        custom_termination = False
-        
-        self.episode_done = max_time_reached or all_vehicles_finished or custom_termination
-        
-        # Check for success conditions if the episode is done
-        if self.episode_done:
-            self.is_success = self._evaluate_success()
-        
-        return self.episode_done
-    
-    def success(self):
-        """
-        Check if the current episode was successful
-        
-        Returns:
-            Boolean indicating success
-        """
-        return self.is_success
-    
-    def _evaluate_success(self):
-        """Evaluate if the episode was successful based on traffic metrics"""
-        if not self.eng:
-            return False
-        
-        # Example success criteria
-        avg_wait_time = self.eng.get_average_travel_time()
-        throughput = sum(self._get_throughput().values())
-        
-        # Consider success if average wait time is below threshold and throughput is high
-        wait_time_threshold = self.config.get('success_wait_time_threshold', 60)
-        throughput_threshold = self.config.get('success_throughput_threshold', 1000)
-        
-        return avg_wait_time < wait_time_threshold and throughput > throughput_threshold
-    
-    def get_tracking_variables(self):
-        """
-        Get the variables being tracked during simulation
-        
-        Returns:
-            Dictionary of tracked variables
-        """
-        return self.tracking_variables
-    
-    def get_last_action(self):
-        """
-        Get the last action applied to the environment
-        
-        Returns:
-            Last action executed
-        """
-        return self.last_action
-    
-    def copy(self):
-        """
-        Create a deep copy of the environment
-        
-        Returns:
-            New instance of the environment with the same state
-        """
-        import copy
-        
-        new_env = CityFlowEnv(self.config)
-        
-        # Copy necessary attributes
-        new_env.current_time = self.current_time
-        new_env.episode_done = self.episode_done
-        new_env.is_success = self.is_success
-        new_env.last_action = copy.deepcopy(self.last_action)
-        new_env.tracking_variables = copy.deepcopy(self.tracking_variables)
-        
-        # Handle the engine - we can't directly copy it, but we can initialize a new one and sync state
-        if self.eng:
-            new_env._init_cityflow_engine()
-            # Synchronize state if needed and if the API allows
-            # This is environment-specific and depends on CityFlow's capabilities
-        
-        return new_env

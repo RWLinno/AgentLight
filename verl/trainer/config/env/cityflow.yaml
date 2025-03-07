@@ -11,7 +11,7 @@ env_kwargs:
     NUM_ROW: 3
     NUM_COL: 4
     ACTION_PATTERN: "set"
-    MIN_ACTION_TIME: 10
+    MIN_ACTION_TIME: 30
     YELLOW_TIME: 3
     LIST_STATE_FEATURE: ["cur_phase", "traffic_movement_pressure_queue"]
     PHASE: ["WSES", "NSSS", "WLEL", "NLSL"]

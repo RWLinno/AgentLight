@@ -24,7 +24,7 @@ training:
   ppo_batch_size: 128
   max_start_length: 400
   max_response_length: 400
-  max_obs_length: 200
+  max_obs_length: 400
   max_turns: 5
   rollout_tp_size: 1
   n_rollout: 16

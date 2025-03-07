@@ -14,7 +14,7 @@ training:
   train_batch_size: 4
   micro_batch_size: 4
   ppo_batch_size: 32
-  max_turns: 5
+  max_turns: 2
   n_rollout: 4
 
 # Optimization parameters
@@ -32,8 +32,8 @@ data:
   train_data_num: null
   val_data_num: null
   prompt_key: prompt
-  max_prompt_length: 512
-  max_response_length: 512
+  max_prompt_length: 1024
+  max_response_length: 1024
   max_start_length: 256
   max_obs_length: 512
   val_batch_size: 1312
@@ -79,12 +79,15 @@ actor_rollout_ref:
       grad_offload: False
       optimizer_offload: False
       fsdp_size: -1
+      model_dtype: bfloat16
   ref:
     fsdp_config:
       param_offload: False
       wrap_policy:
         min_num_params: 0
       fsdp_size: -1
+      model_dtype: bfloat16
+      
     log_prob_micro_batch_size: 128
     log_prob_use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
     log_prob_max_token_len_per_gpu: ${actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
@@ -199,7 +202,7 @@ trainer:
 
 # Processing configuration
 multi_processing: ray
-max_turns: 10
+max_turns: 2
 
 # Environment configuration
 env:

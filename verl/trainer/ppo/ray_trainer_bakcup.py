@@ -38,7 +38,6 @@ from verl.single_controller.ray import RayResourcePool, RayWorkerGroup, RayClass
 from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.ppo import core_algos
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
-from verl.utils.reward_hanlder import get_token_level_reward
 
 
 import re
@@ -266,27 +265,28 @@ def compute_data_metrics(batch, use_critic=True):
         # metrics for actions
         'metric/total_env':
             int(np.array(batch.non_tensor_batch['total_env'], dtype=np.int16).sum()),
-        # 'metric/finished_env':
-        #     int(np.array(batch.non_tensor_batch['finished_env'], dtype=np.int16).sum()),
+        'metric/finished_env':
+            int(np.array(batch.non_tensor_batch['finished_env'], dtype=np.int16).sum()),
+        'metric/success_env':
+            int(np.array(batch.non_tensor_batch['success_env'], dtype=np.int16).sum()),
         'metric/traj_length':
             float(np.array(batch.non_tensor_batch['traj_length'], dtype=np.int16).mean()),
-        # 'metric/valid_action':
-        #     float(np.array(batch.non_tensor_batch['valid_action'], dtype=np.int16).mean()),
-        # 'metric/effective_action':
-        #     float(np.array(batch.non_tensor_batch['effective_action'], dtype=np.int16).mean()),
-        # 'metric/effective_action_ratio':
-        #     float(np.array(batch.non_tensor_batch['effective_action_ratio'], dtype=np.float32).mean()),
+        'metric/valid_action':
+            float(np.array(batch.non_tensor_batch['valid_action'], dtype=np.int16).mean()),
+        'metric/effective_action':
+            float(np.array(batch.non_tensor_batch['effective_action'], dtype=np.int16).mean()),
+        'metric/effective_action_ratio':
+            float(np.array(batch.non_tensor_batch['effective_action_ratio'], dtype=np.float32).mean()),
     }
 
-    # # metric for two-armed bandit
-    # if batch.non_tensor_batch['data_source'][0] == 'two_armed_bandit':
-    #     batch_action = np.array(batch.non_tensor_batch['bandit_metrics'], dtype=np.int16)
-    #     metrics['metric/n_low_arm'] = int(np.sum(batch_action == 1))
-    #     metrics['metric/n_high_arm'] = int(np.sum(batch_action == 2))
-    #     metrics['metric/n_invalid'] = int(np.sum(batch_action == 0))
+    # metric for two-armed bandit
+    if batch.non_tensor_batch['data_source'][0] == 'two_armed_bandit':
+        batch_action = np.array(batch.non_tensor_batch['bandit_metrics'], dtype=np.int16)
+        metrics['metric/n_low_arm'] = int(np.sum(batch_action == 1))
+        metrics['metric/n_high_arm'] = int(np.sum(batch_action == 2))
+        metrics['metric/n_invalid'] = int(np.sum(batch_action == 0))
 
     return metrics
-
 
 
 def compute_timing_metrics(batch, timing_raw):
@@ -381,7 +381,7 @@ class RayPPOTrainer(object):
         else:
             self.kl_ctrl = core_algos.FixedKLController(kl_coef=0.)
 
-        self._create_dataloader()
+        # self._create_dataloader()
         self._init_logger()
     
     def _init_logger(self):
@@ -415,31 +415,31 @@ class RayPPOTrainer(object):
                                            drop_last=True,
                                            collate_fn=collate_fn)
 
-        # self.val_dataset = RLHFDataset(parquet_files=self.config.data.val_files,
-        #                                tokenizer=self.tokenizer,
-        #                                prompt_key=self.config.data.prompt_key,
-        #                                max_prompt_length=self.config.data.max_prompt_length,
-        #                                filter_prompts=True,
-        #                                return_raw_chat=self.config.data.get('return_raw_chat', False),
-        #                                truncation='error')
-        # if self.config.data.val_data_num is not None:
-        #     if self.config.data.val_data_num > len(self.val_dataset.dataframe):
-        #         print(f"[WARNING] validation dataset size is smaller than desired size. Using the dataset as the original size {len(self.val_dataset.dataframe)}")
-        #     else:
-        #         self.val_dataset.dataframe = self.val_dataset.dataframe.sample(self.config.data.val_data_num, random_state=42)
-        # print(f"filtered validation dataset size: {len(self.val_dataset.dataframe)}")
+        self.val_dataset = RLHFDataset(parquet_files=self.config.data.val_files,
+                                       tokenizer=self.tokenizer,
+                                       prompt_key=self.config.data.prompt_key,
+                                       max_prompt_length=self.config.data.max_prompt_length,
+                                       filter_prompts=True,
+                                       return_raw_chat=self.config.data.get('return_raw_chat', False),
+                                       truncation='error')
+        if self.config.data.val_data_num is not None:
+            if self.config.data.val_data_num > len(self.val_dataset.dataframe):
+                print(f"[WARNING] validation dataset size is smaller than desired size. Using the dataset as the original size {len(self.val_dataset.dataframe)}")
+            else:
+                self.val_dataset.dataframe = self.val_dataset.dataframe.sample(self.config.data.val_data_num, random_state=42)
+        print(f"filtered validation dataset size: {len(self.val_dataset.dataframe)}")
 
-        # self.val_dataloader = DataLoader(dataset=self.val_dataset,
-        #                                  batch_size=self.config.data.val_batch_size,
-        #                                  shuffle=True,
-        #                                  drop_last=True,
-        #                                  collate_fn=collate_fn)
+        self.val_dataloader = DataLoader(dataset=self.val_dataset,
+                                         batch_size=self.config.data.val_batch_size,
+                                         shuffle=True,
+                                         drop_last=True,
+                                         collate_fn=collate_fn)
 
         print(f'Size of train dataloader: {len(self.train_dataloader)}')
-        #print(f'Size of val dataloader: {len(self.val_dataloader)}')
+        print(f'Size of val dataloader: {len(self.val_dataloader)}')
         
         assert len(self.train_dataloader) >= 1
-        #assert len(self.val_dataloader) >= 1
+        assert len(self.val_dataloader) >= 1
 
         # inject total_training_steps to actor/critic optim_config. This is hacky.
         total_training_steps = len(self.train_dataloader) * self.config.trainer.total_epochs
@@ -453,7 +453,7 @@ class RayPPOTrainer(object):
         OmegaConf.set_struct(self.config, True)
         with open_dict(self.config):
             self.config.actor_rollout_ref.actor.optim.total_training_steps = total_training_steps
-            #self.config.critic.optim.total_training_steps = total_training_steps
+            self.config.critic.optim.total_training_steps = total_training_steps
 
     def init_workers(self):
         """Init resource pool and worker group"""
@@ -548,14 +548,10 @@ class RayPPOTrainer(object):
 
     def _balance_batch(self, batch: DataProto, metrics, logging_prefix='global_seqlen'):
         """Reorder the data on single controller such that each dp rank gets similar total tokens"""
-        #print content of batch
-        print(f"batch: {batch}")
         attention_mask = batch.batch['attention_mask']
         batch_size = attention_mask.shape[0]
-        print(f"batch_size_in_balance_batch: {batch_size}")
         global_seqlen_lst = attention_mask.view(batch_size, -1).sum(-1).tolist()  # (train_batch_size,)
         world_size = self.actor_rollout_wg.world_size
-        print(f"world_size_in_balance_batch: {world_size}")
         global_partition_lst = get_seqlen_balanced_partitions(global_seqlen_lst,
                                                               k_partitions=world_size,
                                                               equal_size=True)
@@ -573,14 +569,7 @@ class RayPPOTrainer(object):
         The driver process only need to call the compute functions of the worker group through RPC to construct the PPO dataflow.
         The light-weight advantage computation is done on the driver process.
         """
-        # Ensure total_training_steps is initialized
-        if not hasattr(self, 'total_training_steps'):
-            print("Warning: total_training_steps not initialized. Setting from config.")
-            total_training_steps = self.config.trainer.total_epochs
-            if self.config.trainer.total_training_steps is not None:
-                total_training_steps = self.config.trainer.total_training_steps
-            self.total_training_steps = total_training_steps
-            print(f'Total training steps: {self.total_training_steps}')
+
         
         logger = self.logger
         self.global_steps = 0
@@ -621,21 +610,16 @@ class RayPPOTrainer(object):
         )
        #NOTE: xc : 这里创建初始化环境
         #envs = [self.env.copy() for _ in range(self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n_agent)] 
-                            # Generate random seeds for environments
-        
         envs = [self.env for _ in range(self.config.actor_rollout_ref.rollout.n_agent)]
-        env_seeds = [random.randint(0, 1000) for _ in range(len(envs))]
-        
-        envs_state = [env.reset(seed=env_seed) for env, env_seed in zip(envs, env_seeds)] # batch_size 应该等于 路口数量*agent数量
+        envs_state = [env.reset() for env in envs] # batch_size 应该等于 路口数量*agent数量
         print(f"-------------success create {len(envs)} environments-------------")
         print("end reset")
-        
 
 
 
         # start training loop
         for epoch in range(self.config.trainer.total_epochs):
-            for batch_dict in range(1): #事实上我们只有一个step,因为只有一个任务
+            for batch_dict in range(self.config.env.max_steps):
                 print(f'epoch {epoch}, step {self.global_steps}')
                 batch_dict = {}
                 # update ref_policy_wg
@@ -652,14 +636,6 @@ class RayPPOTrainer(object):
 
                 metrics = {}
                 timing_raw = {}
-
-                #NOTE: xc : 这里开始生成一个batch
-                
-                batch = DataProto.from_dict({
-                    **{key: torch.tensor([]) for key in ['input_ids', 'attention_mask', 'position_ids', 'responses', 'prompts']},
-                }, meta_info={
-                    **{key: None for key in ['pixel_values', 'image_grid_thw', 'images', 'raw_prompt_ids', 'task_name', 'reward']}
-                })
 
                 with _timer('step', timing_raw):
                     """
@@ -680,115 +656,60 @@ class RayPPOTrainer(object):
                     with _timer('gen', timing_raw):
                         generation_manager.timing_raw = timing_raw
                         print(f"-------------success run llm loop-------------")
-                        batch = generation_manager.run_llm_loop(
-                            batch=batch,
+                        final_gen_batch_output = generation_manager.run_llm_loop(
                             envs=envs,
                             initial_input_ids=None,
                             output_dir=output_dir,
                             global_steps=self.global_steps,
                         )
 
-                    # LLM Loop 将更新记录内容到batch
-                    print(f"-------------success run llm loop-------------")
-                    final_gen_batch_output = batch
-
-                    # 确保返回的是DataProto类型
-                    if not isinstance(final_gen_batch_output, DataProto):
-                        # 如果返回的是字典或其他可以转换为DataProto的类型，尝试转换
-                        if isinstance(final_gen_batch_output, dict):
-                            try:
-                                final_gen_batch_output = DataProto.from_dict(final_gen_batch_output)
-                            except Exception as e:
-                                print(f"Error converting to DataProto: {e}")
-                        else:
-                            print(f"Warning: final_gen_batch_output is not a DataProto and cannot be converted")
-                            # 创建一个新的空DataProto作为后备方案
-                            final_gen_batch_output = DataProto.from_dict({
-                                **{key: torch.tensor([]) for key in ['input_ids', 'attention_mask', 'position_ids', 'responses', 'prompts']},
-                            })
-                    print(f"final_gen_batch_output: {final_gen_batch_output}")
-                    print(f"batch: {batch}")
-                    #batch_seeds = [random.randint(0, 1000) for _ in range(len(batch.batch))]
-                    #seed all batch seed to 0
-                    batch_seeds = [0 for _ in range(len(batch.batch))]
-                    # add meta_info to batch
-                    batch.meta_info['micro_batch_size'] = self.config.actor_rollout_ref.actor.micro_batch_size_per_device_for_experience
-                    batch.meta_info['use_dynamic_bsz'] = True
-                    batch.meta_info['max_token_len'] = self.config.data.max_response_length+self.config.data.max_prompt_length
-                    batch.meta_info['temperature'] = 1.0
-                    batch.meta_info['global_token_num'] = torch.sum(batch.batch['attention_mask'], dim=-1).tolist()
-
-
                     with torch.no_grad():
-                        output = self.actor_rollout_wg.compute_log_prob(final_gen_batch_output) #NOTE: xc : 这里计算log_prob，初始模型的概率
-                        final_gen_batch_output = final_gen_batch_output.union(output) #NOTE: xc : 这里将输入的prompt+response组和初始模型的概率合并
+                        output = self.actor_rollout_wg.compute_log_prob(final_gen_batch_output)
+                        final_gen_batch_output = final_gen_batch_output.union(output)
                         
+                    # rwl fix: Initialize batch with final_gen_batch_output
+                    batch = final_gen_batch_output
                     
-
+                    # Generate random seeds for environments
+                    env_seeds = [random.randint(0, 1000) for _ in range(len(envs))]
                     
-                    if self.config.algorithm.adv_estimator == 'grpo': #NOTE: xc : 这里初始化uid，用来区分prompt+response组
-                        #batch.non_tensor_batch['uid'] = np.array([str(i) for i in env_seeds], dtype=object)# NOTE: here we try a new method to regrad intersection*step are the same group
-                        batch.non_tensor_batch['uid'] = np.array([str(i) for i in batch_seeds], dtype=object)
+                    if self.config.algorithm.adv_estimator == 'grpo':
+                        batch.non_tensor_batch['uid'] = np.array([str(i) for i in env_seeds], dtype=object)
                     elif self.config.algorithm.adv_estimator == 'brpo':
                         batch.non_tensor_batch['uid'] = np.array(["" for _ in range(len(batch.batch))], dtype=object)
                     elif self.config.algorithm.adv_estimator == 'arpo':
                         batch.non_tensor_batch['uid'] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object) # No Relative normalization
 
                     # reward
-                    #batch.non_tensor_batch['reward'] = np.array([0 for _ in range(len(envs))], dtype=object)
-                    # for idx, env in enumerate(envs):
-                    #     batch.non_tensor_batch['reward'][idx] = env.reward #NOTE: xc : 这里应该对应LLMLight的total_reward(在online.py中)
-
-                    #NOTE: xc : To distinguish between cityflow and traffic_control, we add a new env name 'cityflow' in the env_class
-                    if hasattr(batch, 'non_tensor_batch'):
-                        batch.non_tensor_batch['data_source'] = ['cityflow' for _ in range(len(batch.batch))]
-                    elif isinstance(batch, tuple):
-                        # 如果 batch 是元组，可能需要了解元组的结构
-                        # 这里提供几种可能的解决方案:
-                        
-                        # 方案1: 如果 batch 是包含特定对象的元组，尝试访问第一个元素
-                        if len(batch) > 0 and hasattr(batch[0], 'non_tensor_batch'):
-                            batch[0].non_tensor_batch['data_source'] = ['cityflow' for _ in range(len(envs))]
-                        # 方案2: 如果不需要设置 data_source，可以直接跳过
-                        pass  # 如果 data_source 不是必需的，可以注释掉这段代码
-                        
-                        # 方案3: 创建一个新的带有 non_tensor_batch 的对象
-                        # from verl 导入适当的类来创建新的 batch 对象
-                        # new_batch = BatchClass(...)
-                        # new_batch.non_tensor_batch['data_source'] = ['cityflow' for _ in range(len(envs))]
-                        # batch = new_batch
-                    else:
-                        print(f"Warning: Cannot set data_source, batch is of type {type(batch)}")
-                        # 记录详细信息以帮助调试
-                        print(f"Batch structure: {batch}")
+                    batch.non_tensor_batch['reward'] = np.array([0 for _ in range(len(envs))], dtype=object)
+                    for idx, env in enumerate(envs):
+                        batch.non_tensor_batch['reward'][idx] = env.reward
 
                     # metric for two-armed bandit
                     # NOTE here we assume invalid action is 0, low arm is 1, high arm is 2
-                    # if batch.non_tensor_batch['data_source'][0] == 'two_armed_bandit':
-                    #     batch.non_tensor_batch['bandit_metrics'] = np.array([0 for _ in range(len(envs))], dtype=object)
-                    #     for idx, env in enumerate(envs):
-                    #         batch.non_tensor_batch['bandit_metrics'][idx] = env.get_last_action()
+                    if batch.non_tensor_batch['data_source'][0] == 'two_armed_bandit':
+                        batch.non_tensor_batch['bandit_metrics'] = np.array([0 for _ in range(len(envs))], dtype=object)
+                        for idx, env in enumerate(envs):
+                            batch.non_tensor_batch['bandit_metrics'][idx] = env.get_last_action()
 
                     # metrics for actions
-                    batch.non_tensor_batch['total_env'] = np.array([1 for _ in range(len(batch.batch))], dtype=object)
-                    # batch.non_tensor_batch['finished_env'] = np.array([0 for _ in range(len(envs))], dtype=object)
-                    # batch.non_tensor_batch['success_env'] = np.array([0 for _ in range(len(envs))], dtype=object)
-                    batch.non_tensor_batch['traj_length'] = np.array([0 for _ in range(len(batch.batch))], dtype=object)
-                    # batch.non_tensor_batch['valid_action'] = np.array([0 for _ in range(len(envs))], dtype=object)
-                    # batch.non_tensor_batch['effective_action'] = np.array([0 for _ in range(len(envs))], dtype=object)
-                    # batch.non_tensor_batch['effective_action_ratio'] = np.array([0 for _ in range(len(envs))], dtype=object)
-#                     for idx, env in enumerate(envs):
-#                         #batch.non_tensor_batch['finished_env'][idx] = int(env.finished())
-# #                        batch.non_tensor_batch['success_env'][idx] = int(env.success())
-#                         tracking_vars = env.get_tracking_variables()
-#                         batch.non_tensor_batch['traj_length'][idx] = len(tracking_vars['actions'])
-#                         # batch.non_tensor_batch['valid_action'][idx] = sum(1 for x in tracking_vars['actions_valid'] if x is not None)
-#                         # batch.non_tensor_batch['effective_action'][idx] = sum(1 for x in tracking_vars['actions_effective'] if x is not None)
-#                         # batch.non_tensor_batch['effective_action_ratio'][idx] = sum(1 for x in tracking_vars['actions_effective'] if x is not None) / len(tracking_vars['actions'])
-#                     #batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
-                    
-                    #NOTE: xc : 这里将final_gen_batch_output和batch合并, WHY？
-                    #batch = batch.union(final_gen_batch_output)
+                    batch.non_tensor_batch['total_env'] = np.array([1 for _ in range(len(envs))], dtype=object)
+                    batch.non_tensor_batch['finished_env'] = np.array([0 for _ in range(len(envs))], dtype=object)
+                    batch.non_tensor_batch['success_env'] = np.array([0 for _ in range(len(envs))], dtype=object)
+                    batch.non_tensor_batch['traj_length'] = np.array([0 for _ in range(len(envs))], dtype=object)
+                    batch.non_tensor_batch['valid_action'] = np.array([0 for _ in range(len(envs))], dtype=object)
+                    batch.non_tensor_batch['effective_action'] = np.array([0 for _ in range(len(envs))], dtype=object)
+                    batch.non_tensor_batch['effective_action_ratio'] = np.array([0 for _ in range(len(envs))], dtype=object)
+                    for idx, env in enumerate(envs):
+                        batch.non_tensor_batch['finished_env'][idx] = int(env.finished())
+                        batch.non_tensor_batch['success_env'][idx] = int(env.success())
+                        tracking_vars = env.get_tracking_variables()
+                        batch.non_tensor_batch['traj_length'][idx] = len(tracking_vars['actions'])
+                        batch.non_tensor_batch['valid_action'][idx] = sum(1 for x in tracking_vars['actions_valid'] if x is not None)
+                        batch.non_tensor_batch['effective_action'][idx] = sum(1 for x in tracking_vars['actions_effective'] if x is not None)
+                        batch.non_tensor_batch['effective_action_ratio'][idx] = sum(1 for x in tracking_vars['actions_effective'] if x is not None) / len(tracking_vars['actions'])
+                    batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+                    batch = batch.union(final_gen_batch_output)
 
                     ####################
                     ####################
@@ -797,7 +718,7 @@ class RayPPOTrainer(object):
                     # balance the number of valid tokens on each dp rank.
                     # Note that this breaks the order of data inside the batch.
                     # Please take care when you implement group based adv computation such as GRPO and rloo
-                    #self._balance_batch(batch, metrics=metrics)
+                    self._balance_batch(batch, metrics=metrics)
 
                     # compute global_valid tokens
                     batch.meta_info['global_token_num'] = torch.sum(batch.batch['attention_mask'], dim=-1).tolist()
@@ -824,7 +745,7 @@ class RayPPOTrainer(object):
                             batch = batch.union(reward_tensor)
 
                         # we combine with rule-based rm
-                        reward_tensor = get_token_level_reward(batch)
+                        reward_tensor = self.reward_fn(batch)
                         batch.batch['token_level_scores'] = reward_tensor
 
                         # compute rewards. apply_kl_penalty if available, no kl_loss or kl_penalty for GAE
@@ -846,7 +767,7 @@ class RayPPOTrainer(object):
                     # update critic
                     if self.use_critic:
                         with _timer('update_critic', timing_raw):
-                            critic_output = self.critic_wg.update_critic(batch) 
+                            critic_output = self.critic_wg.update_critic(batch)
                         critic_output_metrics = reduce_metrics(critic_output.meta_info['metrics'])
                         metrics.update(critic_output_metrics)
 
@@ -856,7 +777,7 @@ class RayPPOTrainer(object):
                         with _timer('update_actor', timing_raw):
                             if self.config.actor_rollout_ref.actor.state_masking:
                                 batch,metrics = self._create_loss_mask(batch, metrics)
-                            actor_output = self.actor_rollout_wg.update_actor(batch)  #NOTE: xc : 这里更新actor，计算概率得到loss
+                            actor_output = self.actor_rollout_wg.update_actor(batch)
                         actor_output_metrics = reduce_metrics(actor_output.meta_info['metrics'])
                         metrics.update(actor_output_metrics)
 
@@ -882,9 +803,9 @@ class RayPPOTrainer(object):
 
                 if self.global_steps >= self.total_training_steps:
 
-                    # # perform validation after training
-                    # if self.val_reward_fn is not None:
-                    #     val_metrics = self._validate()
+                    # perform validation after training
+                    if self.val_reward_fn is not None:
+                        val_metrics = self._validate()
                     return
     def _create_loss_mask(self, batch, metrics):
         """Create loss mask for state tokens."""

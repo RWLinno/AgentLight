@@ -40,6 +40,10 @@ from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManage
 
 from codetiming import Timer
 
+import ray
+
+print = ray.logger.info
+
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv('VERL_PPO_LOGGING_LEVEL', 'WARN'))
 
@@ -159,6 +163,9 @@ class ActorRolloutRefWorker(Worker):
         # NOTE(fix me): tie_word_embedding causes meta_tensor init to hang
         init_context = get_init_weight_context_manager(use_meta_tensor=not actor_model_config.tie_word_embeddings)
 
+        print(f"tie_word_embedding: {actor_model_config.tie_word_embeddings}")
+        print("1313131313")
+
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
             actor_module = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path=local_path,
@@ -166,12 +173,27 @@ class ActorRolloutRefWorker(Worker):
                                                                 config=actor_model_config,
                                                                 attn_implementation='flash_attention_2',
                                                                 trust_remote_code=trust_remote_code)
+            
+            print("1414141414")
+            print(f"torch_dtype: {torch_dtype}")
             # some parameters may not in torch_dtype. TODO(zhangchi.usc1992) remove this after we switch to fsdp2
+            actor_module.tie_weights()  # avoid hanging
+
             actor_module.to(torch_dtype)
+            print(f"enable_gradient_checkpointing: {enable_gradient_checkpointing}")
 
             if enable_gradient_checkpointing:
+                print("1515151515")
                 actor_module.gradient_checkpointing_enable(gradient_checkpointing_kwargs={'use_reentrant': False})
-        torch.distributed.barrier()
+        
+        # Add timeout to barrier to prevent indefinite hangs
+        try:
+            # Use a timeout to avoid hanging indefinitely
+            torch.distributed.barrier(timeout=60)  # 5 minute timeout
+        except Exception as e:
+            print(f"Rank {torch.distributed.get_rank()} encountered error at barrier: {e}")
+            # Allow processes to continue even if barrier times out
+            pass
 
         if self.rank == 0:
             print_model_size(actor_module)
@@ -208,19 +230,52 @@ class ActorRolloutRefWorker(Worker):
         else:
             sharding_strategy = ShardingStrategy.FULL_SHARD
 
+
+        from collections import defaultdict
+        from functools import partial
+        from typing import Callable, Union
+        from torch import nn
+
+        def get_init_fn(model: nn.Module, device: Union[str, torch.device]) -> Callable[[nn.Module], None]:
+            param_occurrence = defaultdict(int)
+            for _, param in model.named_parameters(remove_duplicate=False):
+                param_occurrence[param] += 1
+
+            duplicated_params = {param for param in param_occurrence.keys() if param_occurrence[param] > 1}
+            materialized_params = {}
+
+            def init_fn(module: nn.Module):
+                for name, param in module.named_parameters(recurse=False):
+                    if param in duplicated_params:
+                        module._parameters[name] = materialized_params.setdefault(
+                            param, nn.Parameter(torch.empty_like(param.data, device=device), requires_grad=param.requires_grad)
+                        )
+                    else:
+                        module._parameters[name] = nn.Parameter(
+                            torch.empty_like(param.data, device=device), requires_grad=param.requires_grad
+                        )
+
+            return init_fn
+        print("1010101010")
         # TODO: add transformer policy
+        from torch.distributed.fsdp import CPUOffload
         actor_module_fsdp = FSDP(
             actor_module,
-            param_init_fn=init_fn,
-            use_orig_params=False,
+            sharding_strategy=sharding_strategy,
+            cpu_offload=CPUOffload(
+                offload_params=True,
+            ),
             auto_wrap_policy=auto_wrap_policy,
-            device_id=torch.cuda.current_device(),
-            sharding_strategy=sharding_strategy,  # zero3
             mixed_precision=mixed_precision,
+            param_init_fn=get_init_fn(actor_module, device="cuda") if self.rank != 0 else None,
+            device_id=torch.cuda.current_device(),
             sync_module_states=True,
+            forward_prefetch=False,
+            use_orig_params=False,
             device_mesh=self.device_mesh,
-            forward_prefetch=False)
+        )
 
+        print("1212121212")
         log_gpu_memory_usage('After Actor FSDP init', logger=logger)
 
         # TODO: add more optimizer args into config
@@ -292,6 +347,8 @@ class ActorRolloutRefWorker(Worker):
 
         use_remove_padding = self.config.model.get('use_remove_padding', False)
 
+        print("111111111")
+
         if self._is_actor or self._is_rollout:
             # we need the model for actor and rollout
             if self._is_actor:
@@ -309,8 +366,12 @@ class ActorRolloutRefWorker(Worker):
                 enable_gradient_checkpointing=self.config.model.get('enable_gradient_checkpointing', False),
                 trust_remote_code=self.config.model.get('trust_remote_code', False))
 
+            print("222222222")
+
             # get the original unwrapped module
             self.actor_module = self.actor_module_fsdp._fsdp_wrapped_module
+
+            print("333333333")
 
             if self._is_offload_param:
                 # param is require during state_dict in sharding manager
@@ -319,6 +380,8 @@ class ActorRolloutRefWorker(Worker):
             if self._is_offload_optimizer:
                 offload_fsdp_optimizer(optimizer=self.actor_optimizer)
                 log_gpu_memory_usage('After offload actor optimizer during init', logger=logger)
+
+        print("444444444")
         # load from checkpoint
         if self._is_actor:
             OmegaConf.set_struct(self.config.actor, True)
@@ -328,10 +391,16 @@ class ActorRolloutRefWorker(Worker):
                                               actor_module=self.actor_module_fsdp,
                                               actor_optimizer=self.actor_optimizer)
 
+        print("555555555")
+
         if self._is_rollout:
             self.rollout, self.rollout_sharding_manager = self._build_rollout()
 
+        print("666666666")
+
         if self._is_ref:
+            print("777777777")
+
             self.ref_module_fsdp = self._build_model_optimizer(model_path=self.config.model.path,
                                                                fsdp_config=self.config.ref.fsdp_config,
                                                                optim_config=None,
@@ -339,16 +408,23 @@ class ActorRolloutRefWorker(Worker):
                                                                use_remove_padding=use_remove_padding,
                                                                trust_remote_code=self.config.model.get(
                                                                    'trust_remote_code', False))[0]
+            
+            print("888888888")
             if self._is_offload_param:
                 offload_fsdp_param_and_grad(module=self.ref_module_fsdp, offload_grad=self._is_offload_grad)
 
+            print("999999999")
             OmegaConf.set_struct(self.config.ref, True)
             with open_dict(self.config.ref):
                 self.config.ref.use_remove_padding = use_remove_padding
             self.ref_policy = DataParallelPPOActor(config=self.config.ref, actor_module=self.ref_module_fsdp)
 
+        # print("777777777")
+
         if self._is_actor:
             self.flops_counter = FlopsCounter(self.actor_model_config)
+
+        # print("888888888")
 
         torch.cuda.empty_cache()
 
@@ -821,7 +897,7 @@ class CriticWorker(Worker):
             offload_fsdp_param_and_grad(module=self.critic_module, offload_grad=self._is_offload_grad)
         torch.cuda.empty_cache()
         return output
-
+ 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def update_critic(self, data: DataProto):
         data = data.to('cuda')

@@ -3,7 +3,6 @@ import re
 from collections import defaultdict
 import os
 import copy
-import ray
 from typing import List, Dict, Any, Tuple
 from dataclasses import dataclass
 from .tensor_helper import TensorHelper, TensorConfig
@@ -15,7 +14,6 @@ from ragen.utils.plot import (
 from verl import DataProto
 from verl.utils.tracking import Tracking
 import shutil
-import numpy as np
 
 # Import get_state_detail from utils if available
 try:
@@ -29,7 +27,7 @@ except ImportError:
             from ragen.utils.my_utils import get_state_detail
         except ImportError:
             get_state_detail = None
-            ray.logger.info("Warning: get_state_detail function could not be imported")
+            print("Warning: get_state_detail function could not be imported")
 
 # Add phase dictionaries similar to chatgpt.py
 four_phase_list = {'ETWT': 0, 'NTST': 1, 'ELWL': 2, 'NLSL': 3}
@@ -105,15 +103,15 @@ class LLMGenerationManager:
         
         # Initialize roads data if intersection information is provided
         if intersection is not None:
-            ray.logger.info("Initializing with provided intersection data")
+            print("Initializing with provided intersection data")
             if isinstance(intersection, dict) and "roads" in intersection:
                 self.roads = copy.deepcopy(intersection["roads"])
-                ray.logger.info(f"Successfully stored roads data with {len(self.roads)} roads")
+                print(f"Successfully stored roads data with {len(self.roads)} roads")
             
             # Store intersection name if available
             if "name" in intersection:
                 self.inter_name = intersection["name"]
-                ray.logger.info(f"Using intersection: {self.inter_name}")
+                print(f"Using intersection: {self.inter_name}")
                 
         # This will be used for state processing
         self.phases = four_phase_list
@@ -211,7 +209,7 @@ class LLMGenerationManager:
             # Check if any responses contain hacking attempts
             hacked = [resp for resp in responses_str if re.search(hack_pattern, resp, re.DOTALL)]
             if hacked:
-                ray.logger.info(f"[WARNING] HACKED RESPONSES: {len(hacked)} detected")
+                print(f"[WARNING] HACKED RESPONSES: {len(hacked)} detected")
             
             # Remove any state marker sections that shouldn't be there
             responses_str = [re.sub(hack_pattern, '', resp, re.DOTALL) for resp in responses_str]
@@ -224,9 +222,9 @@ class LLMGenerationManager:
                 # Format responses to only include the action
                 responses_str = [f"<answer>{envs[idx].ACTION_LOOKUP[action]}</answer>" 
                              for idx, action in enumerate(actions)]
-                ray.logger.info("RESPONSES:", responses_str)
+                print("RESPONSES:", responses_str)
             except Exception as e:
-                ray.logger.info(f"Error in postprocessing actions: {e}")
+                print(f"Error in postprocessing actions: {e}")
                 # If there's an error, keep the original responses
                 pass
         
@@ -259,7 +257,7 @@ class LLMGenerationManager:
         )['input_ids']
         
         if next_obs_ids.shape[1] > self.config.max_obs_length:
-            ray.logger.info("[WARNING] OBSERVATION TOO LONG, CONSIDER CHANGING YOUR CONFIG")
+            print("[WARNING] OBSERVATION TOO LONG, CONSIDER CHANGING YOUR CONFIG")
             next_obs_ids = next_obs_ids[:, :self.config.max_obs_length]
             
         return next_obs_ids
@@ -371,13 +369,13 @@ class LLMGenerationManager:
             Tuple of (prompt_text, is_default_prompt)
         """
         attempted_methods = ["direct state detail retrieval"]
-        ray.logger.info("\n===== GENERATING TRAFFIC PROMPT =====")
+        print("\n===== GENERATING TRAFFIC PROMPT =====")
         
         try:
             #            # Try using the imported get_state_detail function
-                    ray.logger.info("Using imported get_state_detail function")
+                    print("Using imported get_state_detail function")
                     state, state_incoming, avg_speed = get_state_detail(roads=self.roads, env=env)
-                    ray.logger.info(f"Successfully retrieved state using imported get_state_detail")
+                    print(f"Successfully retrieved state using imported get_state_detail")
                     
                     # Check if state is empty (similar to chatgpt.py flow_num check)
                     flow_num = 0
@@ -385,7 +383,7 @@ class LLMGenerationManager:
                         flow_num += state[road]["queue_len"] + sum(state[road]["cells"])
                     
                     if flow_num == 0:
-                        ray.logger.info("State is empty (no vehicles detected)")
+                        print("State is empty (no vehicles detected)")
                         return "No vehicles detected. Use the default signal: ETWT, please reply <answer>ETWT</answer>, do not reply with any other text", True
                     
                     # Convert state to a readable table format
@@ -396,21 +394,21 @@ class LLMGenerationManager:
                     return prompt, False
             
         except Exception as e:
-            ray.logger.info(f"Error with direct state detail retrieval: {e}")
-            ray.logger.info("=================================================\n")
+            print(f"Error with direct state detail retrieval: {e}")
+            print("=================================================\n")
             
         
         # If we made it here, we couldn't get the state
-        ray.logger.info(f"\n===== COULD NOT RETRIEVE TRAFFIC STATE =====")
-        ray.logger.info(f"Attempted methods: {', '.join(attempted_methods)}")
-        ray.logger.info("Using default signal: ETWT")
-        ray.logger.info("=================================================\n")
+        print(f"\n===== COULD NOT RETRIEVE TRAFFIC STATE =====")
+        print(f"Attempted methods: {', '.join(attempted_methods)}")
+        print("Using default signal: ETWT")
+        print("=================================================\n")
         
         return "Could not retrieve traffic state. Use the default signal: ETWT", True
 
     def _direct_engine_check(self, env):
         """Directly check the engine for traffic."""
-        ray.logger.info("\n===== TRYING DIRECT ENGINE ACCESS =====")
+        print("\n===== TRYING DIRECT ENGINE ACCESS =====")
         
         # Try to get lane vehicle counts directly from engine
         if hasattr(env.eng, 'get_lane_waiting_vehicle_count') and hasattr(env.eng, 'get_lane_vehicles'):
@@ -418,24 +416,24 @@ class LLMGenerationManager:
                 lane_queues = env.eng.get_lane_waiting_vehicle_count()
                 lane_vehicles = env.eng.get_lane_vehicles()
                 
-                ray.logger.info(f"Lane queues: {lane_queues}")
-                ray.logger.info(f"Lane vehicles: {lane_vehicles}")
+                print(f"Lane queues: {lane_queues}")
+                print(f"Lane vehicles: {lane_vehicles}")
                 
                 # If there are vehicles or queues, there's traffic
                 total_vehicles = sum([len(vehicles) for vehicles in lane_vehicles.values()])
                 total_queue = sum(lane_queues.values())
                 
                 if total_vehicles > 0 or total_queue > 0:
-                    ray.logger.info(f"Traffic detected: {total_vehicles} vehicles, {total_queue} in queue")
+                    print(f"Traffic detected: {total_vehicles} vehicles, {total_queue} in queue")
                     return True
                 else:
-                    ray.logger.info("No traffic detected in the environment")
+                    print("No traffic detected in the environment")
                     return False
             except Exception as e:
-                ray.logger.info(f"Error accessing engine: {str(e)}")
+                print(f"Error accessing engine: {str(e)}")
                 return False
         
-        ray.logger.info("Engine methods not available")
+        print("Engine methods not available")
         return False
 
     def _check_traffic_flow(self, state):
@@ -444,9 +442,9 @@ class LLMGenerationManager:
         for road in state:
             if isinstance(state[road], dict) and "queue_len" in state[road] and "cells" in state[road]:
                 flow_num += state[road]["queue_len"] + sum(state[road]["cells"])
-                ray.logger.info(f"Lane '{road}': queue_len={state[road]['queue_len']}, cells={state[road]['cells']}, flow={state[road]['queue_len'] + sum(state[road]['cells'])}")
+                print(f"Lane '{road}': queue_len={state[road]['queue_len']}, cells={state[road]['cells']}, flow={state[road]['queue_len'] + sum(state[road]['cells'])}")
         
-        ray.logger.info(f"Total traffic flow detected: {flow_num}")
+        print(f"Total traffic flow detected: {flow_num}")
         return flow_num
 
     def _state_to_table(self, state, env):
@@ -470,38 +468,38 @@ class LLMGenerationManager:
         # Special case: check if this is a traffic pressure format
         if 'traffic_movement_pressure_queue' in state:
             # Convert traffic pressure format to standard state format
-            ray.logger.info("\n===== TRANSFORMING TRAFFIC_MOVEMENT_PRESSURE_QUEUE IN _state_to_table =====")
+            print("\n===== TRANSFORMING TRAFFIC_MOVEMENT_PRESSURE_QUEUE IN _state_to_table =====")
             pressure_data = state['traffic_movement_pressure_queue']
             if isinstance(pressure_data, dict):
-                ray.logger.info(f"Processing pressure_data with {len(pressure_data)} keys")
-                ray.logger.info(f"Keys: {', '.join(list(pressure_data.keys())[:15])}")
+                print(f"Processing pressure_data with {len(pressure_data)} keys")
+                print(f"Keys: {', '.join(list(pressure_data.keys())[:15])}")
                 
                 transformed_state = {}
                 for lane_key, lane_data in pressure_data.items():
                     if isinstance(lane_key, str) and len(lane_key) == 2:
-                        ray.logger.info(f"Transforming lane '{lane_key}'")
+                        print(f"Transforming lane '{lane_key}'")
                         if isinstance(lane_data, dict):
-                            ray.logger.info(f"  Lane data keys: {', '.join(list(lane_data.keys()))}")
+                            print(f"  Lane data keys: {', '.join(list(lane_data.keys()))}")
                         else:
-                            ray.logger.info(f"  Lane data is not a dictionary: {type(lane_data).__name__}")
+                            print(f"  Lane data is not a dictionary: {type(lane_data).__name__}")
                             
                         # Create normalized lane data
                         transformed_state[lane_key] = {
                             'queue_len': lane_data.get('queue_len', 0) if isinstance(lane_data, dict) else 0,
                             'cells': lane_data.get('cells', [0, 0, 0]) if isinstance(lane_data, dict) else [0, 0, 0]
                         }
-                        ray.logger.info(f"  Created entry: {lane_key}: {transformed_state[lane_key]}")
+                        print(f"  Created entry: {lane_key}: {transformed_state[lane_key]}")
                 
                 # If we transformed successfully, use the new state
                 if transformed_state:
-                    ray.logger.info(f"Successfully transformed state to have {len(transformed_state)} lanes")
+                    print(f"Successfully transformed state to have {len(transformed_state)} lanes")
                     state = transformed_state
                 else:
-                    ray.logger.info("Failed to transform any lanes from traffic_movement_pressure_queue")
+                    print("Failed to transform any lanes from traffic_movement_pressure_queue")
                     # Return a default message if transformation failed
                     return "No valid traffic data available. Default signal: ETWT"
             else:
-                ray.logger.info(f"pressure_data is not a dictionary, it's a {type(pressure_data).__name__}")
+                print(f"pressure_data is not a dictionary, it's a {type(pressure_data).__name__}")
                 return "Invalid traffic data format. Default signal: ETWT"
         
         # Generate table text in the same format as chatgpt.py's state2table method
@@ -512,7 +510,7 @@ class LLMGenerationManager:
                     and k[0] in 'NSEW' and k[1] in 'TLR']
         
         if not lane_keys:
-            ray.logger.info("No valid lane information found in state.")
+            print("No valid lane information found in state.")
             return "No valid traffic data found. Default signal: ETWT"
             
         # Check which phases we can generate
@@ -524,7 +522,7 @@ class LLMGenerationManager:
                 valid_phases.append(phase_name)
                 
         if not valid_phases:
-            ray.logger.info("No valid phase information can be generated.")
+            print("No valid phase information can be generated.")
             return "Cannot generate valid phase information. Default signal: ETWT"
         
         # Format traffic state information
@@ -592,16 +590,21 @@ class LLMGenerationManager:
                 "- The group of lanes relieving vehicles' flow under each traffic light phase.\n"
                 "- The number of early queued vehicles of the allowed lanes of each signal.\n"
                 "- The number of approaching vehicles in different segments of the allowed lanes of each signal.\n\n"
-                "<STATE>"
             ) + state_txt + (
-                "</STATE>"
                 "\nPlease answer:\n"
                 "Which is the most effective traffic signal that will most significantly improve the traffic "
                 "condition during the next phase, which relieves vehicles' flow of the allowed lanes of the signal?\n\n"
-                             
+                "<NOTE>\n"
+                "The traffic congestion is primarily dictated by the early queued vehicles, with the MOST significant "
+                "impact. You MUST pay the MOST attention to lanes with long queue lengths. It is NOT URGENT to "
+                "consider vehicles in distant segments since they are unlikely to reach the intersection soon.<\NOTE>\n\n"                
                 "<REQUIREMENTS>\n"
+                "- Let's think step by step.\n"
                 "- You can only choose one of the signals listed above.\n"
-                "- Show your work in <think> </think> tags. And return the final answer in <answer> </answer> tags, for example <answer> ETWT </answer>.</REQUIREMENTS>"
+                "- You must follow the following steps to provide your analysis: Step 1: Provide your analysis "
+                "for identifying the optimal traffic signal. Step 2: Answer your chosen signal.\n"
+                "- Your choice can only be given after finishing the analysis.\n"
+                "- Your choice must be identified by the tag: <answer>YOUR_CHOICE</answer>!!! <\REQUIREMENTS>"
             )
             return prompt
         else:
@@ -627,7 +630,6 @@ class LLMGenerationManager:
         return messages_list
     
     def run_llm_loop(self, envs: List[Any],
-                    batch: DataProto,
                     initial_input_ids: torch.Tensor,
                     output_dir: str,
                     global_steps: int) -> Tuple[Dict, Dict]:
@@ -644,24 +646,24 @@ class LLMGenerationManager:
             Tuple of final output dictionaries
         """
         
-        ray.logger.info(f"\n===== CHECKING ENVIRONMENTS FORMAT =====")
+        print(f"\n===== CHECKING ENVIRONMENTS FORMAT =====")
         
         # Handle the case where a single environment is passed directly (not in a list)
         # This would be the case when passed from OneLine.train
-        ray.logger.info(f"Environments type: {type(envs).__name__}")
-        ray.logger.info(f"Number of environments: {len(envs)}")
+        print(f"Environments type: {type(envs).__name__}")
+        print(f"Number of environments: {len(envs)}")
         
         # Check if the first item is a list and unwrap if necessary
         if len(envs) > 0 and isinstance(envs[0], list):
-            ray.logger.info(f"Detected nested list structure - unwrapping")
-            ray.logger.info(f"Ens[1] type: {type(envs[0]).__name__}, length: {len(envs[0])}")
-            ray.logger.info(f"content of envs[0]: {envs[0]}")
+            print(f"Detected nested list structure - unwrapping")
+            print(f"Ens[1] type: {type(envs[0]).__name__}, length: {len(envs[0])}")
+            print(f"content of envs[0]: {envs[0]}")
             
         
-        ray.logger.info("=======================================\n")
+        print("=======================================\n")
+        
         # Initialize tracking variables
         batch_size = len(envs)
-                        
         trajectory = self._setup_visualization()
         
         # Create an initial input tensor if none provided
@@ -678,59 +680,33 @@ class LLMGenerationManager:
         
         # Create metadata for tracking
         meta_info = {}
-       
-
-        # Initialize 3D data structures for batch (envs * step * intersections)
-        if 'input_ids' not in batch.batch:
-            batch.batch['input_ids'] = [[] for _ in range(batch_size)]
-            batch.batch['attention_mask'] = [[] for _ in range(batch_size)]
-            batch.batch['position_ids'] = [[] for _ in range(batch_size)]
-            batch.batch['prompts'] = [[] for _ in range(batch_size)]
-            batch.batch['responses'] = [[] for _ in range(batch_size)]
-            
-        # Initialize or convert reward structure to avoid tensor append issues
-        if 'reward' not in batch.non_tensor_batch:
-            batch.non_tensor_batch['reward'] = [[] for _ in range(batch_size)]
-        # Container for storing all actions for all environments
-
-        all_env_actions = [[] for _ in range(len(envs))]
-        all_env_responses = [[] for _ in range(len(envs))]
-        all_env_responses_ids = [[] for _ in range(len(envs))]
-        all_intersection_prompts = [[] for _ in range(len(envs))]
-        all_input_ids = [[] for _ in range(len(envs))]
-        all_attention_mask = [[] for _ in range(len(envs))]
-        all_position_ids = [[] for _ in range(len(envs))]
-        all_prompts = [[] for _ in range(len(envs))]
-        all_responses = [[] for _ in range(len(envs))]
-        all_reward = [[] for _ in range(len(envs))]
-        total_reward = [[] for _ in range(len(envs))]
+        
         # Main loop for the number of turns
         for step in range(self.config.max_turns):
             # Break if no environments are active
             if not active_mask.sum():
                 break
             
-            
             # Get active environments
             envs = [env for mask, env in zip(active_mask, envs) if mask]
             active_indices = [i for i, mask in enumerate(active_mask) if mask]
             
-
-
-
-                            
+            # Container for storing all actions for all environments
+            all_env_actions = [None] * len(envs)
+            all_env_responses = [None] * len(envs)
+            all_env_responses_ids = [None] * len(envs)
+            all_intersection_prompts = [None] * len(envs)
             
             try:
                 # Process each active environment
                 for env_idx, env in zip(active_indices, envs):
                     env = envs[env_idx]
-                    total_reward[env_idx] = 0.0
                     # Update roads data if not already stored
                     self._update_intersection_data(env)
-                    ray.logger.info(f"---------------------------------env---------------------------------: {env}")
+                    print(f"---------------------------------env---------------------------------: {env}")
                     # Print more detailed info about the environment
-                    ray.logger.info("\nEnvironment Details:")
-                    ray.logger.info(f"Type: {type(env).__name__}")
+                    print("\nEnvironment Details:")
+                    print(f"Type: {type(env).__name__}")
 
                     # Process each intersection in the environment
                     # Get the number of intersections in this environment
@@ -744,26 +720,18 @@ class LLMGenerationManager:
                     elif hasattr(env, 'get_intersection_count'):
                         num_intersections = env.get_intersection_count()
                     
-
-                   
-                        
-                        # Handle reward structure separately
-                        if not isinstance(batch.non_tensor_batch['reward'][env_idx], list):
-                            batch.non_tensor_batch['reward'][env_idx] = list(batch.non_tensor_batch['reward'][env_idx]) if hasattr(batch.non_tensor_batch['reward'][env_idx], '__iter__') else [batch.non_tensor_batch['reward'][env_idx]]
-                        batch.non_tensor_batch['reward'][env_idx].append([0.0] * num_intersections)
-
                     # Container for intersection actions
                     intersection_actions = []
                     intersection_responses = []
                     intersection_responses_ids = []
                     intersection_prompts = []
-                    intersection_penalties = []
                     # Process each intersection
                     for i in range(num_intersections):
+                        # Get the specific intersection if available
                         intersection = None
                         if hasattr(env, 'list_intersection') and i < len(env.list_intersection):
                             intersection = env.list_intersection[i]
-                            ray.logger.info(f"---------------------------------intersection---------------------------------: {intersection}")
+                            print(f"---------------------------------intersection---------------------------------: {intersection}")
                         elif hasattr(env, 'intersections') and i < len(env.intersections):
                             intersection = env.intersections[i]
                         
@@ -773,11 +741,11 @@ class LLMGenerationManager:
                         # Get the prompt
                         prompt = self.generate_traffic_prompt(target)
                         if prompt is None:
-                            ray.logger.info(f"Warning: generate_traffic_prompt returned None for intersection {i}")
+                            print(f"Warning: generate_traffic_prompt returned None for intersection {i}")
                             prompt = "No valid traffic information available. Default signal: ETWT", True
                             
-                        ray.logger.info(f"Generated prompt for intersection {i}")
-                        ray.logger.info(f"prompt: {prompt}")
+                        print(f"Generated prompt for intersection {i}")
+                        print(f"prompt: {prompt}")
 
                         intersection_prompts.append(prompt)
                         
@@ -790,14 +758,14 @@ class LLMGenerationManager:
                         # Convert prompt to tokens
                         try:
                             # Ensure we're using a string for tokenization
-                            ray.logger.info(f"Tokenizing prompt of type: {type(prompt_text)}")
+                            print(f"Tokenizing prompt of type: {type(prompt_text)}")
                             prompt_ids = self.tokenizer(
                                 [prompt_text],  # Wrap in a list to ensure correct input format
                                 padding='longest',
                                 return_tensors='pt'
                             )
                         except Exception as e:
-                            ray.logger.info(f"Error tokenizing prompt: {e}")
+                            print(f"Error tokenizing prompt: {e}")
                             # Provide a simple fallback prompt in case of tokenization errors
                             prompt_text = "Traffic light control task. Default signal: ETWT"
                             prompt_ids = self.tokenizer(
@@ -813,42 +781,54 @@ class LLMGenerationManager:
                             'position_ids': torch.arange(prompt_ids['input_ids'].shape[1]).unsqueeze(0).expand_as(prompt_ids['input_ids'])
                         })
                         
-                        
                         # Generate response for this intersection
                         retry_counter = 0
                         max_retries = 1
                         valid_response = False
                         signal_text = ""
                         
-                        # Track the last response and its tokenized form
-                        last_response_str = ""
-                        last_response_ids = None
-                        last_gen_output = None
-                        
                         while retry_counter < max_retries and not valid_response:
                             try:
                                 # Generate response
                                 gen_output = self._generate_with_gpu_padding(rolling_input)
+
+
+
+                                #NOTE: simulate the response gen_output
+                                # response_text = ["<answer>ETWT</answer>"]
+                                # # Create a properly formatted tensor with shape attribute
+                                # # First tokenize to get token ids
+                                # tokens = self.tokenizer(response_text, return_tensors="pt")
+                                # # Use the token ids as the simulated model output
+                                # response_tensor = tokens.input_ids
                                 
+                                # gen_output_dict = {
+                                #     'batch': {
+                                #         'responses': response_tensor
+                                #     },
+                                #     'meta_info': {
+                                #         'micro_batch_size': 1  # Add the missing micro_batch_size
+                                #     }
+                                # }
+                                # # Convert to DataProto to match the expected return type from _generate_with_gpu_padding
+                                # gen_output = DataProto.from_dict(gen_output_dict)
+                                #NOTE: end of simulate the response gen_output
+                                
+
+
                                 # Update meta info
                                 if not meta_info:
                                     meta_info.update(gen_output.meta_info)
                                 
                                 # Post-process the model response
                                 response_ids, response_str = self._postprocess_responses(
-                                    gen_output.batch['responses'], envs=[envs]
+                                    gen_output.batch['responses'], envs=[target]
                                 )
-                                
-                                # Store the last response
-                                last_response_str = response_str[0] if response_str else ""
-                                last_response_ids = response_ids[0] if response_ids.shape[0] > 0 else None
-                                last_gen_output = gen_output
-                                
-                                ray.logger.info(f"response_str: {response_str}")
+                                print(f"response_str: {response_str}")
                                 # Extract action using pattern matching, similar to chatgpt.py
                                 signal_answer_pattern = r'<answer>(.*?)</answer>'
                                 matches = re.findall(signal_answer_pattern, response_str[0], re.DOTALL)
-                                ray.logger.info(f"matches: {matches}")
+                                print(f"matches: {matches}")
                                 
                                 if matches and matches[-1].strip():
                                     # Extract the action text (signal)
@@ -881,158 +861,123 @@ class LLMGenerationManager:
                                         intersection_responses.append(response_str[0])
                                         intersection_responses_ids.append(response_ids[0])
                                         valid_response = True
-                                        ray.logger.info(f"Extracted action {action_code} from signal: {signal_text}")
-                                        intersection_penalties.append(0)
-                                    
+                                        print(f"Extracted action {action_code} from signal: {signal_text}")
                                     else:
                                         retry_counter += 1
-                                        ray.logger.info(f"Invalid signal text: {signal_text}, retry {retry_counter}/{max_retries}")
+                                        print(f"Invalid signal text: {signal_text}, retry {retry_counter}/{max_retries}")
                                 else:
                                     retry_counter += 1
-                                    ray.logger.info(f"No valid answer tag found, retry {retry_counter}/{max_retries}")
+                                    print(f"No valid answer tag found, retry {retry_counter}/{max_retries}")
                             
                             except Exception as e:
                                 retry_counter += 1
-                                ray.logger.info(f"Error processing response (attempt {retry_counter}/{max_retries}): {e}")
+                                print(f"Error processing response (attempt {retry_counter}/{max_retries}): {e}")
                         
-                        # If no valid response after retries, use the last invalid response
+                        # If no valid response after retries, use a default action
                         if not valid_response:
-                            ray.logger.info("Using last invalid response after maximum retries")
-                            intersection_penalties.append(-1)
-                            # If we have a last response, use it
-                            if last_response_ids is not None and last_gen_output is not None:
-                                # Use the default action but keep the invalid response for context
-                                default_action = 0  # ETWT/WSES is often the default
-                                default_signal = target.ACTION_LOOKUP[default_action] if hasattr(target, 'ACTION_LOOKUP') else 'ETWT'
-                                
-                                intersection_actions.append(default_action)
-                                intersection_responses.append(last_response_str)
-                                intersection_responses_ids.append(last_response_ids)
-                                
-                                # Use the last gen_output
-                                gen_output = last_gen_output
-                                
-                                ray.logger.info(f"Using default action: {default_action} with signal: {default_signal}")
-                                #add reward penalty for invalid response
-
-
-
-                                ray.logger.info(f"But keeping original response: {last_response_str[:50]}...")
-                            else:
-                                # If we don't have a last response, ray.logger.info the error
-                                ray.logger.info(f"Error: No valid response after maximum retries")
-                        
-                        # Compose combined data for batch storage using helper functions (similar to _compose_final_output)
-                        intersection_data = {}
-                        
-                        # Store the prompt and response separately
-                        intersection_data['prompts'] = rolling_input.batch['input_ids']
-                        intersection_data['responses'] = gen_output.batch['responses']
-                        
-                        # Combine input IDs
-                        intersection_data['input_ids'] = torch.cat([
-                            rolling_input.batch['input_ids'],
-                            gen_output.batch['responses']
-                        ], dim=1)
-                        
-                        # Create attention mask using tensor helper
-                        intersection_data['attention_mask'] = torch.cat([
-                            rolling_input.batch['attention_mask'],
-                            self.tensor_fn.create_attention_mask(gen_output.batch['responses'])
-                        ], dim=1)
-                        
-                        # Create position ids using tensor helper
-                        intersection_data['position_ids'] = self.tensor_fn.create_position_ids(
-                            intersection_data['attention_mask']
-                        )
-                        
-        
-                        # Store data in 3D format (envs * step * intersections)
-                        # Ensure the intersection level is a list that we can set by index
-                       
-                        
-                        # Now set the intersection data
-                        all_input_ids[env_idx].append(intersection_data['input_ids'])
-                        all_attention_mask[env_idx].append(intersection_data['attention_mask'])
-                        all_position_ids[env_idx].append(intersection_data['position_ids'])
-                        all_prompts[env_idx].append(intersection_data['prompts'])
-                        all_responses[env_idx].append(intersection_data['responses'])
+                            print("Using default action after maximum retries")
+                            # Default to first action as in chatgpt.py (ETWT)
+                            default_action = 0  # ETWT/WSES is often the default
+                            default_signal = target.ACTION_LOOKUP[default_action] if hasattr(target, 'ACTION_LOOKUP') else 'ETWT'
+                            default_response = f"<answer>{default_signal}</answer>"
+                            
+                            intersection_actions.append(default_action)
+                            intersection_responses.append(default_response)
+                            intersection_responses_ids.append(self._batch_tokenize([default_response])[0])
+                            print(f"Using default action: {default_action} with signal: {default_signal}")
                     
-                    # Assign the intersection actions to all_env_actions for this environment
-                    all_env_actions[env_idx].extend(intersection_actions)  # Use extend for lists
-                    all_env_responses[env_idx].extend(intersection_responses)
-                    all_env_responses_ids[env_idx].extend(intersection_responses_ids)
-                    all_intersection_prompts[env_idx].extend(intersection_prompts)
+                    # Store actions and responses for this environment
+                    all_env_actions[env_idx] = intersection_actions
+                    all_env_responses[env_idx] = intersection_responses
+                    all_env_responses_ids[env_idx] = intersection_responses_ids
+                    all_intersection_prompts[env_idx] = intersection_prompts
                 
                 # Execute actions in all environments
-                next_observations = []  # Explicitly initialize as an empty list
-                dones = []  # Explicitly initialize as an empty list
-                ray.logger.info(f'intersection_penalties: {intersection_penalties}')
+                next_observations = []
+                dones = []
+                
                 for env_idx, env in zip(active_indices, envs):
                     env_actions = all_env_actions[env_idx]
                     
-                    
-                    ray.logger.info(f"ENV_STEP-----------------------")
-                    # make sure the env_actions is a init list before step
-                    ray.logger.info(f"env_actions: {env_actions}")
-                    next_obs, reward, done, detail_reward = env.step(env_actions)
-                    ray.logger.info(f"ENV_STEP_Finished--------------------------------")
-                    # Check if reward is a scalar or array
-                    for r,p in zip(detail_reward, intersection_penalties):
-                        all_reward[env_idx].append(r+p)
-                    ray.logger.info(f"batch.non_tensor_batch['reward']: {batch.non_tensor_batch['reward']}")
-                    total_reward[env_idx] += reward
+                    try:
+                        if hasattr(env, 'step'):
+                            print(f"ENV_STEP-----------------------")
+                            next_obs, reward, done, _ = env.step(env_actions)
+                            # next_obs is a list of states for each intersection
+                            # Convert each intersection state to a prompt
+                            #NOTE： 这些需要修复，obs应该要记录，或者记录每个路口的prompt
+                            # # Join all intersection prompts with a separator
+                            # combined_prompt = "\n=== Next Intersection ===\n".join(intersection_prompts)
+                            # next_observations.append(combined_prompt)
+                            # dones.append(done)
+                    except Exception as e:
+                        print(f"Error executing actions: {e}")
+                        next_observations.append("")
+                        dones.append(False)
                 
-
+                # Process next observations if available
+                if next_observations:
+                    next_obs_ids = self._process_next_obs(next_observations)
+                    
+                    # Flatten responses for all active environments
+                    all_responses = []
+                    for env_idx in active_indices:
+                        response_ids = all_env_responses_ids[env_idx]
+                        if response_ids:  # Check if we have responses
+                            if isinstance(response_ids[0], torch.Tensor):
+                                # Find the maximum length among all response tensors
+                                max_len = max(tensor.size(-1) for tensor in response_ids)
+                                
+                                # Pad each tensor to max_len
+                                padded_responses = []
+                                for tensor in response_ids:
+                                    if tensor.size(-1) < max_len:
+                                        padding = torch.full((max_len - tensor.size(-1),), 
+                                                           self.tokenizer.pad_token_id,
+                                                           dtype=tensor.dtype,
+                                                           device=tensor.device)
+                                        padded_tensor = torch.cat([tensor, padding])
+                                    else:
+                                        padded_tensor = tensor
+                                    padded_responses.append(padded_tensor)
+                                
+                                # Now all tensors are the same size, we can extend
+                                all_responses.extend(padded_responses)
+                            else:
+                                print(f"Warning: Unexpected response_ids type: {type(response_ids[0])}")
+                    
+                    # Convert to tensor if needed
+                    if all_responses:  # Check if we have any responses
+                        if isinstance(all_responses[0], torch.Tensor):
+                            all_responses = torch.stack(all_responses)
+                        else:
+                            all_responses = self._batch_tokenize(all_responses)
+                    else:
+                        print("Warning: No responses to process")
+                        continue  # Skip this iteration if no valid responses
+                    
+                    # Update tracking for right side
+                    original_right_side = self._update_right_side(
+                        original_right_side,
+                        all_responses,
+                        next_obs_ids
+                    )
+                
+                
             except Exception as e:
-                ray.logger.info(f"Error in LLM loop step {step}: {e}")
+                print(f"Error in LLM loop step {step}: {e}")
                 # Continue to next step if there's an error
                 continue
         
-        ray.logger.info("ACTIVE_TRAJ_NUM:", active_num_list)
-        ray.logger.info(f"total_reward: {total_reward}")
-
-        #final reward= all_reward + total_reward
-        #all_reward[env_idx] = [x + total_reward for x in all_reward[env_idx]] #NOTE；暂时不用全局reward
-        ray.logger.info(f"all_reward: {all_reward}")
-
-        # Update the existing batch directly instead of creating a new DataProto object
-        ray.logger.info(f"all_input_ids: {all_input_ids}")
-        ray.logger.info(f"shape of all_input_ids: {len(all_input_ids)}")
-        ray.logger.info(f"type of all_input_ids: {type(all_input_ids)}")
-        ray.logger.info(f"instance of all_input_ids: {isinstance(all_input_ids, torch.Tensor)}")
-        ray.logger.info(f"example 1 of all_input_ids: {all_input_ids[0]} \n")
+        print("ACTIVE_TRAJ_NUM:", active_num_list)
         
-        final_output = self._compose_batch_data(all_input_ids, all_attention_mask, all_position_ids, all_responses, all_reward)
-        # for env_idx in enumerate(active_indices):
-        #         for key, data_list in [
-        #             ('input_ids', all_input_ids),
-        #             ('attention_mask', all_attention_mask),
-        #             ('position_ids', all_position_ids),
-        #             ('prompts', all_prompts),
-        #             ('responses', all_responses)
-        #         ]:
-        #             batch.batch[key][env_idx].extend(data_list[env_idx])
-                
-        #         # Update non-tensor batch data (reward)
-    
-        #         batch.non_tensor_batch['reward'][env_idx].extend(all_reward[env_idx])
-
         # Save trajectory for visualization
-        # if trajectory:
-        #     self._save_trajectory(trajectory, output_dir, global_steps)
+        if trajectory:
+            self._save_trajectory(trajectory, output_dir, global_steps)
         
-        # Add total_reward to non_tensor_batch
-        #final_output.non_tensor_batch['total_reward'] = np.array(total_reward, dtype=np.float32)
-        # Add total_env data that the ray_trainer.py is trying to access
-        #final_output.non_tensor_batch['total_env'] = np.array([1 for _ in range(len(envs))], dtype=object)
-        
-        ray.logger.info(f"final_output: {final_output}")
-        ray.logger.info("the content of final_output:")
-        for key, tensor in final_output.batch.items():
-            ray.logger.info(f"key: {key}, shape: {tensor.shape}, dtype: {tensor.dtype}")
-        # Return only the final_output object, not a tuple
-        return final_output
+        # Return the final output
+        return self._compose_final_output(original_left_side, original_right_side, meta_info)
+
     def _setup_visualization(self) -> List[Dict]:
         """Setup visualization tracking if enabled."""
         if not self.config.logging.log_images:
@@ -1048,7 +993,7 @@ class LLMGenerationManager:
         for idx, (env, active) in enumerate(zip(envs[:n_visualize], active_mask[:n_visualize])):
             if active:
                 #trajectory[idx]['state'].append(env.render('rgb_array'))
-                ray.logger.info(f"we don need to update trajectory")
+                print(f"we don need to update trajectory")
             
         for idx, (response, env, active) in enumerate(zip(responses[:n_visualize], 
                                                 envs[:n_visualize],
@@ -1072,55 +1017,8 @@ class LLMGenerationManager:
             if 'wandb' in self.logger.logger:
                 for filename in filenames:
                     self.logger.logger['wandb'].save(filename)
-    def _compose_batch_data(self, all_input_ids: List[torch.Tensor], all_attention_mask: List[torch.Tensor], all_position_ids: List[torch.Tensor], all_responses: List[torch.Tensor], all_reward):
-        """Compose batch data for training."""
-        #shape of all_input_ids (intersection_num*step, batch_size, length)
-        for  env_idx in range(len(all_input_ids)):
-            for step_idx in range(len(all_input_ids[env_idx])):
-                all_input_ids[env_idx][step_idx] = all_input_ids[env_idx][step_idx].squeeze(0)
-                all_responses[env_idx][step_idx] = all_responses[env_idx][step_idx].squeeze(0)
-                all_attention_mask[env_idx][step_idx] = all_attention_mask[env_idx][step_idx].squeeze(0)
-                all_position_ids[env_idx][step_idx] = all_position_ids[env_idx][step_idx].squeeze(0)
-        # find maximum lengths of all_input_ids and all_responses
-        max_length_input_ids = max(seq.shape[0] for env_idx in all_input_ids for seq in env_idx)
-        max_length_responses = max(seq.shape[0] for env_idx in all_responses for seq in env_idx)
-        
-        # pad all_input_ids and all_responses to the maximum length
-        for env_idx in range(len(all_input_ids)):
-            for step_idx in range(len(all_input_ids[env_idx])):
-                all_input_ids[env_idx][step_idx] = torch.nn.functional.pad(all_input_ids[env_idx][step_idx], (0, max_length_input_ids - all_input_ids[env_idx][step_idx].shape[0]))
-                all_responses[env_idx][step_idx] = torch.nn.functional.pad(all_responses[env_idx][step_idx], (0, max_length_responses - all_responses[env_idx][step_idx].shape[0]))
-                # creat new attention_mask and position_ids
-                all_attention_mask[env_idx][step_idx] = self.tensor_fn.create_attention_mask(all_input_ids[env_idx][step_idx])
 
-        # now we have padded all_input_ids, all_attention_mask, all_position_ids, all_prompts, all_responses
 
-        # transfer all_reward to a numpy array (batch_size, 1)
-        all_reward = np.array(all_reward, dtype=np.float32)
-
-        # Task1. we need to stake tensor list to a list with a high level tensor (batch_size*intersection_num*step, max_length)
-
-        # NOTE: here it not corret, BUT first attempt ， env=1,use num_intersections*steps to be batch_size
-        all_reward = np.squeeze(all_reward)
-        all_input_ids = torch.stack(all_input_ids[0], dim=0)      
-        all_responses = torch.stack(all_responses[0], dim=0)
-        all_attention_mask = torch.stack(all_attention_mask[0], dim=0)
-        all_position_ids = self.tensor_fn.create_position_ids(all_attention_mask)
-        final_output = DataProto.from_dict(tensors={
-            'input_ids': all_input_ids,
-            'attention_mask': all_attention_mask,
-            'position_ids': all_position_ids,
-            'responses': all_responses
-        }, non_tensors={
-            'reward': all_reward
-        })
-
-        # Task2. 
-
-        return final_output
-
-        
-        # combine all_input_ids, all_attention_mask, all_position_ids, all_prompts, all_responses
     def _compose_final_output(self, left_side: Dict,
                             right_side: Dict,
                             meta_info: Dict) -> Tuple[Dict, Dict]:
@@ -1173,12 +1071,12 @@ class LLMGenerationManager:
             env: Environment instance, which should have intersection and roads data
         """
             
-        ray.logger.info(f"\n===== UPDATING INTERSECTION DATA =====")
-        ray.logger.info(f"Environment type: {type(env).__name__}")
+        print(f"\n===== UPDATING INTERSECTION DATA =====")
+        print(f"Environment type: {type(env).__name__}")
         if hasattr(env, '__dict__'):
             env_attrs = [attr for attr in dir(env) if not attr.startswith('__')]
-            ray.logger.info(f"Environment attributes: {', '.join(env_attrs[:15])}")
-        ray.logger.info("=======================================\n")
+            print(f"Environment attributes: {', '.join(env_attrs[:15])}")
+        print("=======================================\n")
         
         
         # Store data for all intersections
@@ -1189,7 +1087,7 @@ class LLMGenerationManager:
         # The environment from OneLine is a CityFlowEnv instance that should have
         # intersection_dict and list_intersection attributes
         if hasattr(env, 'intersection_dict') and hasattr(env, 'list_intersection') and len(env.list_intersection) > 0:
-            ray.logger.info("Found CityFlowEnv style environment with intersection_dict")
+            print("Found CityFlowEnv style environment with intersection_dict")
             
             # Process each intersection
             for i in range(len(env.list_intersection)):
@@ -1199,7 +1097,7 @@ class LLMGenerationManager:
                 
                 # Get the intersection name
                 inter_name = env.list_intersection[intersection_idx].inter_name
-                ray.logger.info(f"Using intersection: {inter_name}")
+                print(f"Using intersection: {inter_name}")
                 
                 # Get intersection data and store it
                 intersection = env.intersection_dict[inter_name]
@@ -1213,11 +1111,11 @@ class LLMGenerationManager:
                 self.inter_name = inter_name
                 self._update_length_dict()
             
-            ray.logger.info(f"Successfully updated intersection data for {len(self.intersections)} intersections")
+            print(f"Successfully updated intersection data for {len(self.intersections)} intersections")
             return True
             
         # If we couldn't find intersection data, create default roads data
-        ray.logger.info("Could not find valid intersection data, creating default roads data")
+        print("Could not find valid intersection data, creating default roads data")
         self.roads = {
             "road_north": {"length": 300, "location": "North"},
             "road_south": {"length": 300, "location": "South"},
@@ -1225,7 +1123,7 @@ class LLMGenerationManager:
             "road_west": {"length": 300, "location": "West"}
         }
         self._update_length_dict()
-        ray.logger.info("Created default roads data")
+        print("Created default roads data")
         return False
         
     def _update_length_dict(self):

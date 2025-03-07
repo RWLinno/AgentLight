@@ -261,7 +261,8 @@ EOF
 # Set environment variables
 export PYTHONHASHSEED=10000
 export HYDRA_FULL_ERROR=1
-
+export MICRO_BATCH_SIZE_LOG_PROB=1
+export MICRO_BATCH_SIZE_ACTOR_UPDATE=1
 # Apply all fixes and run training
 echo "Starting environment-driven training with all fixes..."
 
@@ -287,6 +288,9 @@ python -m verl.trainer.main_ppo \
   actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
   +actor_rollout_ref.model.tensor_parallel_size=1 \
   +actor_rollout_ref.model.rollout_tensor_parallel_size=1 \
+  +actor_rollout_ref.actor.micro_batch_size_per_device_for_update=$MICRO_BATCH_SIZE_ACTOR_UPDATE \
+  +actor_rollout_ref.actor.micro_batch_size_per_device_for_experience=$MICRO_BATCH_SIZE_LOG_PROB \
+  +actor_rollout_ref.ref.micro_batch_size_per_device_for_experience=$MICRO_BATCH_SIZE_LOG_PROB \
   actor_rollout_ref.actor.ppo_mini_batch_size=4 \
   actor_rollout_ref.actor.ppo_micro_batch_size=2 \
   actor_rollout_ref.actor.clip_ratio=0.2 \
@@ -298,11 +302,11 @@ python -m verl.trainer.main_ppo \
   critic.optim.lr=1e-5 \
   critic.cliprange_value=0.2 \
   +critic.tensor_parallel_size=1 \
-  algorithm.gamma=0.99 \
-  algorithm.lam=0.95 \
-  algorithm.adv_estimator=gae \
+  algorithm.gamma=1 \
+  algorithm.lam=1 \
+  algorithm.adv_estimator=grpo \
   algorithm.kl_ctrl.type=fixed \
-  algorithm.kl_ctrl.kl_coef=0.0005 \
+  algorithm.kl_ctrl.kl_coef=0.0001 \
   trainer.total_epochs=150 \
   trainer.save_freq=5 \
   trainer.test_freq=10 \
@@ -321,8 +325,8 @@ python -m verl.trainer.main_ppo \
   +env.roadnet_file=roadnet.json \
   +env.flow_file=flow.json \
   +env.min_action_time=15 \
-  +env.max_steps=300 \
-  +env.num_intersections=1 \
+  +env.max_steps=3200 \
+  +env.num_intersections=12 \
   +env.env_kwargs.dic_traffic_env_conf.TOP_K_ADJACENCY=5 \
   env.env_kwargs.dic_path.PATH_TO_DATA=./LLMLight/data/Jinan/3_4 \
   +trainer.val_before_train=false
